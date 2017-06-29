@@ -34,8 +34,6 @@ def transform_data(fname, vocabulary, max_sentence_len):
     curr_tweets = [x.replace('\r', '').split('\t')[-1] for x in file.readlines()]
     text_idx = convert2indices(curr_tweets, vocabulary, dummy_word_idx, unk_word_idx, max_sent_length=max_sentence_len)
 
-
-
     return text_idx
 
 

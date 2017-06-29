@@ -61,11 +61,11 @@ def main(args):
 
         cnn_model.fit(
             x=train_input,
-            y=np.ones(len(train_input)),
+            y=train_input,
             epochs=10,
             shuffle=True,
             batch_size=batch_size,
-            validation_data=(valid_input, np.ones(len(valid_input)))
+            validation_data=(valid_input, valid_input)
         )
 
 if __name__ == '__main__':

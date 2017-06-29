@@ -20,19 +20,19 @@ def vae_model(config_data, vocab):
     # == == == == == =
     # Define Encoder
     # == == == == == =
-    input_idx = Input(batch_shape=(None, sample_size), dtype='int32', name='character_input')
-    one_hot_weights = np.identity(nclasses)
-    #oshape = (batch_size, sample_size, nclasses)
-    one_hot_embeddings = Embedding(
-        input_length=sample_size,
-        input_dim=nclasses,
-        output_dim=nclasses,
-        weights=[one_hot_weights],
-        trainable=False,
-        name='one_hot_embeddings'
-    )(input_idx)
+    input_idx = Input(batch_shape=(None, sample_size, nclasses), dtype='float32', name='character_input')
+    # one_hot_weights = np.identity(nclasses)
+    # #oshape = (batch_size, sample_size, nclasses)
+    # one_hot_embeddings = Embedding(
+    #     input_length=sample_size,
+    #     input_dim=nclasses,
+    #     output_dim=nclasses,
+    #     weights=[one_hot_weights],
+    #     trainable=False,
+    #     name='one_hot_embeddings'
+    # )(input_idx)
     #oshape = (batch_size, sample_size/2, 128)
-    conv1 = Conv1D(filters=nfilter, kernel_size=3, strides=2, padding='same')(one_hot_embeddings)
+    conv1 = Conv1D(filters=nfilter, kernel_size=3, strides=2, padding='same')(input_idx)
     bn1 = BatchNormalization()(conv1)
     relu1 = Activation(activation='relu')(bn1)
     # oshape = (batch_size, sample_size/4, 128)
@@ -67,8 +67,7 @@ def vae_model(config_data, vocab):
     reshape = Reshape((sample_size, out_size))(relu4)
     softmax = Dense(nclasses, activation='softmax')(reshape)
 
-    def vae_loss(args):
-        x, x_decoded_mean = args
+    def vae_loss(x, x_decoded_mean):
         # NOTE: binary_crossentropy expects a batch_size by dim
         # for x and x_decoded_mean, so we MUST flatten these!
         x = K.flatten(x)
@@ -80,9 +79,9 @@ def vae_model(config_data, vocab):
     def identity_loss(y_true, y_pred):
         return y_pred
 
-    loss = Lambda(vae_loss, output_shape=(1,))([one_hot_embeddings, softmax])
+    #loss = Lambda(vae_loss, output_shape=(1,))([one_hot_embeddings, softmax])
 
-    model = Model(inputs=[input_idx], outputs=[loss])
-    model.compile(optimizer='adam', loss=identity_loss)
+    model = Model(inputs=[input_idx], outputs=[softmax])
+    model.compile(optimizer='adam', loss=vae_loss)
 
     return model
