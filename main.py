@@ -40,6 +40,8 @@ def main(args):
 
         vocab = cPickle.load(open('en_full/vocabulary.pkl', 'rb'))
 
+        batch_size = config_data['batch_size']
+
         logging.info('Load Training Data')
         train_input = load_data(join(tweets_path, 'en_train.tsv'),   config_data, vocab)
         logging.info('Load Validation Data')
@@ -62,7 +64,7 @@ def main(args):
             y=np.ones(len(train_input)),
             epochs=10,
             shuffle=True,
-            batch_size=100,
+            batch_size=batch_size,
             validation_data=(valid_input, np.ones(len(valid_input)))
         )
 

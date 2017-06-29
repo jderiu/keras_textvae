@@ -21,7 +21,7 @@
   "nb_filter": 200,
   "filter_length": 3,
   "softmax_beta": 10,
-  "batch_size": 1000,
+  "batch_size": 100,
   "standard_deviation": 0.01,
   "nb_epochs": 100,
   "generations": 5000,
