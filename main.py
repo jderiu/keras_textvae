@@ -40,8 +40,6 @@ def main(args):
 
         vocab = cPickle.load(open('en_full/vocabulary.pkl', 'rb'))
 
-        batch_size = config_data['batch_size']
-
         logging.info('Load Training Data')
         train_input = load_data(join(tweets_path, 'en_train.tsv'),   config_data, vocab)
         logging.info('Load Validation Data')
@@ -61,11 +59,10 @@ def main(args):
 
         cnn_model.fit(
             x=train_input,
-            y=train_input,
+            y=np.ones(len(train_input)),
             epochs=10,
             shuffle=True,
-            batch_size=batch_size,
-            validation_data=(valid_input, valid_input)
+            validation_data=(valid_input, np.ones(len(valid_input)))
         )
 
 if __name__ == '__main__':

@@ -9,13 +9,13 @@ def convert2indices(data, alphabet, dummy_word_idx, unk_word_idx, max_sent_lengt
     unknown_words = 0
     known_words = 0
     for sentence in data:
-        ex = np.zeros(shape=(max_sent_length, unk_word_idx + 1))
+        ex = np.ones(max_sent_length)*dummy_word_idx
         max_len = max(len(sentence), max_len)
         if len(sentence) > max_sent_length:
             sentence = sentence[:max_sent_length]
         for i, token in enumerate(sentence):
             idx = alphabet.get(token, unk_word_idx)
-            ex[i][idx] = 1
+            ex[i] = idx
             if idx == unk_word_idx:
                 unknown_words += 1
             else:
