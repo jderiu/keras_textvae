@@ -43,25 +43,14 @@ def vae_model(config_data, vocab):
     flatten = Flatten()(relu2)
     #need to store the size of the representation after the convolutions -> needed for deconv later
     hidden_intermediate_enc = Dense(intermediate_dim, activation='relu', name='intermediate_encoding')(flatten)
-    #hidden_zvalues = Dense(z_size*2)(hidden_intermediate_enc)
-    #sampling_object = Sampling(z_size)
-    #sampling = sampling_object(hidden_zvalues)
-
-    z_mean = Dense(z_size)(hidden_intermediate_enc)
-    z_log_var = Dense(z_size)(hidden_intermediate_enc)
-
-    def sampling_fun(args):
-        z_mean, z_log_var = args
-        epsilon = K.random_normal(shape=(config_data['batch_size'], z_size),
-                                  mean=0., stddev=1.0)
-        return z_mean + K.exp(z_log_var) * epsilon
-
-    sampling = Lambda(sampling_fun, output_shape=(z_size,))([z_mean, z_log_var])
+    hidden_zvalues = Dense(z_size*2)(hidden_intermediate_enc)
+    sampling_object = Sampling(z_size)
+    sampling = sampling_object(hidden_zvalues)
 
     # == == == == == =
     # Define Decoder
     # == == == == == =
-    hidden_intermediate_dec = Dense(intermediate_dim, name='intermediate_decoding')(hidden_intermediate_enc)
+    hidden_intermediate_dec = Dense(intermediate_dim, name='intermediate_decoding')(sampling)
     decoder_upsample = Dense(int(2*nfilter*sample_size/4))(hidden_intermediate_dec)
     if K.image_data_format() == 'channels_first':
         output_shape = (2*nfilter, int(sample_size/4), 1)
@@ -76,7 +65,7 @@ def vae_model(config_data, vocab):
     bn4 = BatchNormalization()(deconv2)
     relu4 = Activation(activation='relu')(bn4)
     reshape = Reshape((sample_size, out_size))(relu4)
-    softmax = TimeDistributed(Dense(nclasses, activation='softmax'))(reshape)
+    softmax = Dense(nclasses, activation='softmax')(reshape)
 
     def vae_loss(args):
         x, x_decoded_mean = args
@@ -85,8 +74,8 @@ def vae_model(config_data, vocab):
         x = K.flatten(x)
         x_decoded_mean = K.flatten(x_decoded_mean)
         xent_loss = binary_crossentropy(x, x_decoded_mean)
-        #kl_loss = - 0.5 * K.mean(1 + z_log_var - K.square(z_mean) - K.exp(z_log_var), axis=-1)
-        return xent_loss
+        kl_loss = - 0.5 * K.mean(1 + sampling_object.log_sigma - K.square(sampling_object.mu) - K.exp(sampling_object.log_sigma), axis=-1)
+        return xent_loss + kl_loss
 
     def identity_loss(y_true, y_pred):
         return y_pred
