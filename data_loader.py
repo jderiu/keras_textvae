@@ -27,12 +27,12 @@ def load_data(fname, config_data, vocabulary):
 def transform_data(fname, vocabulary, max_sentence_len):
     max_idx = max(vocabulary.values())
     dummy_word_idx = max_idx + 1
-    unk_word_idx = max_idx + 2
+    start_word = max_idx + 2
 
     file = open(fname, encoding='utf-8', mode='rt')
 
     curr_tweets = [x.replace('\r', '').split('\t')[-1] for x in file.readlines()]
-    text_idx = convert2indices(curr_tweets, vocabulary, dummy_word_idx, unk_word_idx, max_sent_length=max_sentence_len)
+    text_idx = convert2indices(curr_tweets, vocabulary, dummy_word_idx, dummy_word_idx, max_sent_length=max_sentence_len)
 
     return text_idx
 
@@ -57,7 +57,7 @@ def create_vocabulary(files):
 if __name__ == "__main__":
     dir = 'en_full'
     files = [
-        join(dir, 'en_full.tsv'),
+        join(dir, 'en_train.tsv'),
         join(dir, 'en_test16.tsv'),
         join(dir, 'en_test17.tsv'),
         join(dir, 'en_valid15.tsv')

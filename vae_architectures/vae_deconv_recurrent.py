@@ -1,26 +1,34 @@
-from keras.layers import Lambda, Conv1D, Conv2DTranspose, Embedding, Input, BatchNormalization, Activation, Flatten, Dense, Reshape, TimeDistributed
-from sampling_layer import Sampling
-from keras.models import Model
 import keras.backend as K
-from keras.metrics import binary_crossentropy, kullback_leibler_divergence
 import numpy as np
+from keras.layers import Lambda, Conv1D, Conv2DTranspose, Embedding, Input, BatchNormalization, Activation, Flatten, \
+    Dense, Reshape, concatenate, LSTM
+from keras.metrics import binary_crossentropy
+from keras.models import Model
+
+from vae_architectures.sampling_layer import Sampling
 
 
-def vae_model(config_data, vocab):
+def vae_model(config_data, vocab, step):
     z_size = config_data['z_size']
     sample_size = config_data['max_sentence_length']
     nclasses = len(vocab) + 2
+    #last available index is reserved as start character
+    start_word_idx = nclasses - 1
     lstm_size = config_data['lstm_size']
     alpha = config_data['alpha']
     intermediate_dim = config_data['intermediate_dim']
+    batch_size = config_data['batch_size']
     nfilter = 128
     out_size = 200
-
-
+    eps = 0.001
+    anneal_start = 1000.0
+    anneal_end= anneal_start + 7000.0
     # == == == == == =
     # Define Encoder
     # == == == == == =
     input_idx = Input(batch_shape=(None, sample_size), dtype='float32', name='character_input')
+    start_idx = Input(batch_shape=(None, 1), dtype='int32')
+
     one_hot_weights = np.identity(nclasses)
     #oshape = (batch_size, sample_size, nclasses)
     one_hot_embeddings = Embedding(
@@ -30,9 +38,10 @@ def vae_model(config_data, vocab):
         weights=[one_hot_weights],
         trainable=False,
         name='one_hot_embeddings'
-    )(input_idx)
+    )
+    input_one_hot_embeddings = one_hot_embeddings((input_idx))
     #oshape = (batch_size, sample_size/2, 128)
-    conv1 = Conv1D(filters=nfilter, kernel_size=3, strides=2, padding='same')(one_hot_embeddings)
+    conv1 = Conv1D(filters=nfilter, kernel_size=3, strides=2, padding='same')(input_one_hot_embeddings)
     bn1 = BatchNormalization()(conv1)
     relu1 = Activation(activation='relu')(bn1)
     # oshape = (batch_size, sample_size/4, 128)
@@ -67,22 +76,41 @@ def vae_model(config_data, vocab):
     reshape = Reshape((sample_size, out_size))(relu4)
     softmax = Dense(nclasses, activation='softmax')(reshape)
 
+    def argmax_fun(softmax_output):
+        return K.argmax(softmax_output, axis=2)
+
+    def remove_last_column(x):
+        return x[:, :-1]
+
+    previous_char = concatenate([start_idx, input_idx], axis=1)
+    previous_char_slice = Lambda(remove_last_column, output_shape=(sample_size,))(previous_char)
+    previous_char_embedding = one_hot_embeddings(previous_char_slice)
+
+    combined_input = concatenate(inputs=[softmax, previous_char_embedding], axis=2)
+    recurrent_component = LSTM(200, return_sequences=True)(combined_input)
+    softmax_final = Dense(nclasses, activation='softmax')(recurrent_component)
+
     def vae_loss(args):
         x, x_decoded_mean = args
         # NOTE: binary_crossentropy expects a batch_size by dim
         # for x and x_decoded_mean, so we MUST flatten these!
-        x = K.flatten(x)
+        x = K.flatten(K.clip(x, 1e-5, 1 - 1e-5))
         x_decoded_mean = K.flatten(x_decoded_mean)
-        xent_loss = binary_crossentropy(x, x_decoded_mean)
+        xent_loss = nclasses*sample_size*binary_crossentropy(x, x_decoded_mean)
         kl_loss = - 0.5 * K.mean(1 + sampling_object.log_sigma - K.square(sampling_object.mu) - K.exp(sampling_object.log_sigma), axis=-1)
-        return xent_loss + kl_loss
+        kld_weight = K.clip((step - anneal_start) / (anneal_end - anneal_start), 0, 1 - eps) + eps
+        return xent_loss + kl_loss*kld_weight
 
     def identity_loss(y_true, y_pred):
         return y_pred
 
-    loss = Lambda(vae_loss, output_shape=(1,))([one_hot_embeddings, softmax])
+    loss = Lambda(vae_loss, output_shape=(1,))([input_one_hot_embeddings, softmax_final])
 
-    model = Model(inputs=[input_idx], outputs=[loss])
-    model.compile(optimizer='adam', loss=identity_loss)
+    argmax = Lambda(argmax_fun, output_shape=(sample_size,))(softmax)
 
-    return model
+    train_model = Model(inputs=[input_idx, start_idx], outputs=[loss])
+    train_model.compile(optimizer='adam', loss=identity_loss)
+
+    test_model = Model(inputs=[input_idx, start_idx], outputs=[argmax])
+
+    return train_model, test_model
