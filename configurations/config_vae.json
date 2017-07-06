@@ -1,0 +1,33 @@
+{
+  "max_sentence_length": 128,
+  "z_size": 50,
+  "nclasses": 51,
+  "lstm_size": 200,
+  "intermediate_dim": 200,
+  "tweets_path": "en_full",
+  "base_model_path": "models/base_cnn_model.h5",
+  "tmp_cnn_model_path": "models/tmp_cnn_model.h5",
+  "sent2vec_len": 700,
+  "population_size": 5,
+  "alpha": 0.2,
+  "omega": 1,
+  "output_path": "models/supervised_phase",
+  "output_basename": "en_supervised",
+  "model": "default_cnn",
+  "model_type": "recurrent",
+  "transfer_learning": "True",
+  "nb_filter": 200,
+  "filter_length": 3,
+  "softmax_beta": 10,
+  "batch_size": 100,
+  "standard_deviation": 0.01,
+  "nb_epochs": 100,
+  "generations": 5000,
+  "patience" : 10,
+  "optimizer": {
+    "epsilon": 1e-6,
+    "lr": 1.0,
+    "name": "adadelta",
+    "rho": 0.95
+  }
+}

@@ -37,6 +37,7 @@ def vae_model(config_data, vocab, step):
         trainable=False,
         name='one_hot_embeddings'
     )
+
     input_one_hot_embeddings = one_hot_embeddings((input_idx))
     #oshape = (batch_size, sample_size/2, 128)
     conv1 = Conv1D(filters=nfilter, kernel_size=3, strides=2, padding='same')(input_one_hot_embeddings)

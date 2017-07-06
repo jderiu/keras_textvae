@@ -20,10 +20,12 @@ np.random.seed(1337)
 import keras.backend as K
 
 class NewCallback(Callback):
+
     def __init__(self, alpha):
         self.alpha = alpha
-    def on_epoch_end(self, epoch, logs={}):
-        K.set_value(self.alpha, K.get_value(self.alpha) * epoch**0.95)
+
+    def on_batch_end(self, batch, logs=None):
+        K.set_value(self.alpha, K.get_value(self.alpha) * batch**0.95)
 
 
 def main(args):
@@ -61,12 +63,8 @@ def main(args):
 
         if config_data['model_type'] == 'recurrent':
             from vae_architectures.vae_deconv_recurrent import vae_model
-            train_net_input = [train_input, np.ones(len(train_input))*(2 + max(vocab.values()))]
-            val_net_input = [valid_input, np.ones(len(valid_input))*(2 + max(vocab.values()))]
         else:
             from vae_architectures.vae_deconv_baseline import vae_model
-            train_net_input = train_input
-            val_net_input = valid_input
 
         # == == == == == == == == == == =
         # Define and load the CNN model
@@ -75,18 +73,17 @@ def main(args):
         cnn_model.save_weights(config_data['base_model_path'])
         cnn_model.summary()
 
-
         cnn_model.fit(
-            x=train_net_input,
+            x=train_input,
             y=np.ones(len(train_input)),
             epochs=config_data['nb_epochs'],
             batch_size=config_data['batch_size'],
             shuffle=True,
-            validation_data=(val_net_input, np.ones(len(valid_input))),
+            validation_data=(valid_input, np.ones(len(valid_input))),
             callbacks=[NewCallback(step)]
         )
-
-        output_text(test_model, valid_input, vocab)
+        test_model.summary()
+        output_text(test_model, valid_input, vocab, config_data['batch_size'])
 
 if __name__ == '__main__':
     main(sys.argv[1:])

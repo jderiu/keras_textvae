@@ -8,13 +8,7 @@ ARG TENSORFLOW_ARCH=gpu
 ARG KERAS_VERSION=2.0.4
 ARG LASAGNE_VERSION=v0.1
 ARG TORCH_VERSION=latest
-ARG CAFFE_VERSION=master
 
-#RUN echo -e "\n**********************\nNVIDIA Driver Version\n**********************\n" && \
-#	cat /proc/driver/nvidia/version && \
-#	echo -e "\n**********************\nCUDA Version\n**********************\n" && \
-#	nvcc -V && \
-#	echo -e "\n\nBuilding your Deep Learning Docker Image...\n"
 
 # Install some dependencies
 RUN apt-get update && apt-get install -y \
@@ -98,23 +92,10 @@ RUN pip3 --no-cache-dir install --upgrade ipython && \
 	python3 -m ipykernel.kernelspec
 
 
-#install libgpuarray
-RUN git clone https://github.com/Theano/libgpuarray.git
-RUN cd libgpuarray && \
-        mkdir Build && \
-        cd Build && \
-        cmake .. -DCMAKE_BUILD_TYPE=Release &&  \
-        make && \
-        make install && \
-        cd .. && \
-        python3 setup.py build && \
-        python3 setup.py install && \
-        ldconfig
-
 #Install Theano
-RUN pip3 install --no-cache-dir --upgrade Theano && \
+RUN pip3 install --upgrade git+git://github.com/Theano/Theano.git && \
 	\
-	echo "[global]\ndevice=gpu\nfloatX=float32\noptimizer_including=cudnn\nmode=FAST_RUN \
+	echo "[global]\ndevice=cuda0\nfloatX=float32\noptimizer_including=cudnn\nmode=FAST_RUN \
 		\n[lib]\ncnmem=0.95 \
 		\n[nvcc]\nfastmath=True \
 		\n[blas]\nldflag = -L/usr/lib/openblas-base -lopenblas \
