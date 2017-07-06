@@ -2,8 +2,8 @@ import numpy as np
 import logging
 
 
-def output_text(model, text_idx, vocab, batch_size):
-    ofile = open('logging/test_output.txt', 'wt', encoding='utf-8')
+def output_text(model, text_idx, vocab, step='final'):
+    ofile = open('logging/test_output_{}.txt'.format(step), 'wt', encoding='utf-8')
     generated_texts = model.predict(text_idx, batch_size=32)
     inverse_vocab = {v: k for (k, v) in vocab.items()}
 

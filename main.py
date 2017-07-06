@@ -8,11 +8,12 @@ import logging
 import os
 import sys
 from os.path import join
+from math import ceil
 
 import numpy as np
 from keras.callbacks import Callback
 
-from data_loader import load_data
+from data_loader import load_data, generate_data_stream
 from output_text import output_text
 
 #do this before importing anything from Keras
@@ -20,12 +21,23 @@ np.random.seed(1337)
 import keras.backend as K
 
 class NewCallback(Callback):
-
-    def __init__(self, alpha):
+    def __init__(self, alpha, **kwargs):
         self.alpha = alpha
+        super(NewCallback, self).__init__(**kwargs)
 
     def on_batch_end(self, batch, logs=None):
         K.set_value(self.alpha, K.get_value(self.alpha) * batch**0.95)
+
+
+class OutputCallback(Callback):
+    def __init__(self, test_model, validation_input, vocabulary, **kwargs):
+        self.validation_input = validation_input
+        self.vocabulary = vocabulary
+        self.test_model = test_model
+        super(OutputCallback, self).__init__(**kwargs)
+
+    def on_epoch_begin(self, epoch, logs=None):
+        output_text(self.test_model, self.validation_input, self.vocabulary, str(epoch))
 
 
 def main(args):
@@ -73,17 +85,31 @@ def main(args):
         cnn_model.save_weights(config_data['base_model_path'])
         cnn_model.summary()
 
-        cnn_model.fit(
-            x=train_input,
-            y=np.ones(len(train_input)),
-            epochs=config_data['nb_epochs'],
-            batch_size=config_data['batch_size'],
-            shuffle=True,
-            validation_data=(valid_input, np.ones(len(valid_input))),
-            callbacks=[NewCallback(step)]
+        # cnn_model.fit(
+        #     x=train_input,
+        #     y=np.ones(len(train_input)),
+        #     epochs=config_data['nb_epochs'],
+        #     batch_size=config_data['batch_size'],
+        #     shuffle=True,
+        #     validation_data=(valid_input, np.ones(len(valid_input))),
+        #     callbacks=[NewCallback(step)]
+        # )
+
+        cnn_model.fit_generator(
+            generator=generate_data_stream(config_data['training_path'], config_data, vocab, config_data['batch_size']),
+            steps_per_epoch=ceil(config_data['samples_per_epoch']/config_data['batch_size']),
+            epochs=ceil(config_data['nb_epochs']*(config_data['nsamples']/config_data['samples_per_epoch'])),
+            callbacks=[NewCallback(step), OutputCallback(test_model, valid_input, vocab)],
+            validation_data=(valid_input, np.ones(len(valid_input)))
         )
         test_model.summary()
-        output_text(test_model, valid_input, vocab, config_data['batch_size'])
+
+        cnn_out_path = join(config_data['output_path'], 'trained_deconv_vae_{}_model'.format(config_data['model_type']))
+        cnn_model.save_weights(cnn_out_path)
+        cnn_out_path = join(config_data['output_path'], 'trained_deconv_vae_{}_model_test'.format(config_data['model_type']))
+        test_model.save_weights(cnn_out_path)
+
+        output_text(test_model, valid_input, vocab)
 
 if __name__ == '__main__':
     main(sys.argv[1:])

@@ -1,19 +1,38 @@
 # -*- coding: utf-8 -*-
 from __future__ import unicode_literals
-import sys
-import codecs
 from os.path import join
-import numpy as np
-from keras.utils.np_utils import to_categorical
 from preprocessing_utils import convert2indices
 import _pickle as cPickle
 from collections import defaultdict
+import gzip
+import numpy as np
 
 senti_map = {
     'negative': 0,
     'positive': 2,
     'neutral': 1
 }
+
+
+def generate_data_stream(fname, config_data, vocabulary, batch_size):
+    max_sentence_len = config_data['max_sentence_length']
+    max_idx = max(vocabulary.values())
+    dummy_word_idx = max_idx + 1
+
+    while True:
+        if fname.endswith('.tsv'):
+            ifile = open(fname, mode='rt', encoding='utf-8')
+        elif fname.endswith('.gz') or fname.endswith('.gzip'):
+            ifile = gzip.open(fname, mode='rt', encoding='utf-8')
+        current_batch = []
+        for i, line in enumerate(ifile):
+            current_batch.append(line)
+            if i % batch_size == 0:
+                processed_batch = [x.replace('\r', '').split('\t')[-1] for x in current_batch]
+                batch_idx = convert2indices(processed_batch, vocabulary, dummy_word_idx, dummy_word_idx, max_sent_length=max_sentence_len)
+                yield (batch_idx, np.ones(len(batch_idx)))
+                current_batch = []
+        ifile.close()
 
 
 def load_data(fname, config_data, vocabulary):
