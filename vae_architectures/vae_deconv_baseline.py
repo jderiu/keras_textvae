@@ -97,7 +97,6 @@ def vae_model(config_data, vocab, step):
     argmax = Lambda(argmax_fun, output_shape=(sample_size,))(softmax)
 
     train_model = Model(inputs=[input_idx], outputs=[loss])
-    train_model.compile(optimizer='adam', loss=identity_loss)
 
     test_model = Model(inputs=[input_idx], outputs=[argmax])
 

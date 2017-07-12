@@ -2,11 +2,12 @@ import keras.backend as K
 import numpy as np
 from keras.layers import Lambda, Conv1D, Conv2DTranspose, Embedding, Input, BatchNormalization, Activation, Flatten, \
     Dense, Reshape, concatenate, LSTM, ZeroPadding1D, Layer
-
+from keras.optimizers import Adam, Nadam
 from keras.metrics import binary_crossentropy, categorical_crossentropy
 from keras.models import Model
 from keras.regularizers import l2
 from theano import tensor as T
+from os.path import join
 
 
 from vae_architectures.sampling_layer import Sampling
@@ -15,34 +16,35 @@ from vae_architectures.sampling_layer import Sampling
 def vae_model(config_data, vocab, step):
     z_size = config_data['z_size']
     sample_size = config_data['max_sentence_length']
-    nclasses = len(vocab) + 2
-    #last available index is reserved as start character
-    start_word_idx = nclasses - 1
     lstm_size = config_data['lstm_size']
     alpha = config_data['alpha']
     intermediate_dim = config_data['intermediate_dim']
-    batch_size = config_data['batch_size']
     nfilter = 128
     out_size = 200
     eps = 0.001
     anneal_start = 1000.0
     anneal_end = anneal_start + 7000.0
 
+    embedding_path = join(config_data['vocab_path'], 'embedding_matrix.npy')
+    embedding_matrix = np.load(open(embedding_path))
+    nclasses = embedding_matrix.shape[0]
+    emb_dim = embedding_matrix.shape[1]
+
     l2_regularizer = None
     # == == == == == =
     # Define Encoder
     # == == == == == =
-    input_idx = Input(batch_shape=(None, sample_size), dtype='int32', name='character_input')
+    input_idx = Input(batch_shape=(None, sample_size), dtype='int32', name='word_input')
 
-    one_hot_weights = np.identity(nclasses)
+    #one_hot_weights = np.identity(nclasses)
     #oshape = (batch_size, sample_size, nclasses)
     one_hot_embeddings = Embedding(
         input_length=sample_size,
         input_dim=nclasses,
-        output_dim=nclasses,
-        weights=[one_hot_weights],
+        output_dim=emb_dim,
+        weights=[embedding_matrix],
         trainable=False,
-        name='one_hot_embeddings'
+        name='word_embeddings'
     )
 
     input_one_hot_embeddings = one_hot_embeddings(input_idx)
@@ -164,7 +166,7 @@ def vae_model(config_data, vocab, step):
     combined_input = concatenate(inputs=[softmax_auxiliary, previous_char_slice], axis=2)
     #MUST BE IMPLEMENTATION 1 or 2
     lstm = LSTM(
-        lstm_size,
+        200,
         return_sequences=True,
         implementation=2,
         kernel_regularizer=l2_regularizer,
@@ -217,7 +219,8 @@ def vae_model(config_data, vocab, step):
 
     train_model = Model(inputs=[input_idx], outputs=[main_loss, kld_loss, aux_loss])
 
-
+    optimizer = Nadam(lr=0.002, beta_1=0.9, beta_2=0.999, epsilon=1e-8, schedule_decay=0.004, clipvalue=1, clipnorm=10)
+    train_model.compile(optimizer=optimizer, loss=identity_loss)
 
     test_model = Model(inputs=[input_idx], outputs=[output_gen_layer])
 
@@ -260,7 +263,6 @@ class LSTMStep(Layer):
 
         ndim = x.ndim
         axes = [1, 0] + list(range(2, ndim))
-        #(sample_size, batch_size, lstm_size) since we iterate over the samples
         x_shuffled = x.dimshuffle(axes)
 
         def _step(x_i, states):
@@ -283,12 +285,12 @@ class LSTMStep(Layer):
         constants = self.lstm.get_constants(x)
         start_word = K.zeros_like(x_shuffled[0], name='_start_word', dtype='float32')
 
-        output_info = [
-            None,
-            dict(initial=start_word, taps=[-1]),
-            dict(initial=initial_states[0], taps=[-1]),
-            dict(initial=initial_states[1], taps=[-1]),
-        ]
+        # output_info = [
+        #     None,
+        #     dict(initial=start_word, taps=[-1]),
+        #     dict(initial=initial_states[0], taps=[-1]),
+        #     dict(initial=initial_states[1], taps=[-1]),
+        # ]
 
         indices = list(range(self.input_length))
 

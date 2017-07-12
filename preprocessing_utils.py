@@ -1,6 +1,24 @@
 # -*- coding: utf-8 -*-
 from __future__ import unicode_literals
 import numpy as np
+from nltk.tokenize import TweetTokenizer, WordPunctTokenizer
+import re
+
+
+tokenzer = TweetTokenizer()
+
+
+def preprocess(tweet):
+    #lowercase and normalize urls
+    tweet = tweet.lower()
+    tweet = tweet.replace('\n', '')
+    tweet = re.sub('((www\.[^\s]+)|(https?://[^\s]+)|(http?://[^\s]+))', 'URLTOK', tweet)
+    tweet = re.sub('@[^\s]+', 'USRTOK', tweet)
+    tweet = re.sub(r'#([^\s]+)', r'\1', tweet)
+
+    tweet = tokenzer.tokenize(tweet)
+
+    return list(map(lambda x: x.replace(' ', ''), tweet))
 
 
 def convert2indices(data, alphabet, dummy_word_idx, unk_word_idx, max_sent_length=140, verbose=0):
