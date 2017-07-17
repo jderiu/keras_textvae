@@ -1,7 +1,7 @@
 import keras.backend as K
 import numpy as np
 from keras.layers import Lambda, Conv1D, Conv2DTranspose, Embedding, Input, BatchNormalization, Activation, Flatten, \
-    Dense, Reshape, concatenate, LSTM, ZeroPadding1D, Layer
+    Dense, Reshape, concatenate, LSTM, ZeroPadding1D, Layer, PReLU
 
 from keras.metrics import binary_crossentropy, categorical_crossentropy
 from keras.models import Model
@@ -25,8 +25,8 @@ def vae_model(config_data, vocab, step):
     nfilter = 128
     out_size = 200
     eps = 0.001
-    anneal_start = 1000.0
-    anneal_end = anneal_start + 7000.0
+    anneal_start = 10000.0
+    anneal_end = anneal_start + 10000.0
 
     l2_regularizer = None
     # == == == == == =
@@ -57,10 +57,11 @@ def vae_model(config_data, vocab, step):
         activity_regularizer=l2_regularizer
     )(input_one_hot_embeddings)
     bn1 = BatchNormalization(
+        scale=False,
         beta_regularizer=l2_regularizer,
         gamma_regularizer=l2_regularizer
     )(conv1)
-    relu1 = Activation(activation='relu')(bn1)
+    relu1 = PReLU()(bn1)
     # oshape = (batch_size, sample_size/4, 128)
     conv2 = Conv1D(
         filters=2*nfilter,
@@ -72,16 +73,16 @@ def vae_model(config_data, vocab, step):
         activity_regularizer=l2_regularizer
     )(relu1)
     bn2 = BatchNormalization(
+        scale=False,
         beta_regularizer=l2_regularizer,
         gamma_regularizer=l2_regularizer
     )(conv2)
-    relu2 = Activation(activation='relu')(bn2)
+    relu2 = PReLU()(bn2)
     #oshape = (batch_size, sample_size/4*256)
     flatten = Flatten()(relu2)
     #need to store the size of the representation after the convolutions -> needed for deconv later
     hidden_intermediate_enc = Dense(
         intermediate_dim,
-        activation='relu',
         name='intermediate_encoding',
         kernel_regularizer=l2_regularizer,
         bias_regularizer=l2_regularizer,
@@ -108,11 +109,12 @@ def vae_model(config_data, vocab, step):
         bias_regularizer=l2_regularizer,
         activity_regularizer=l2_regularizer
     )(hidden_intermediate_dec)
+    relu_int = PReLU()(decoder_upsample)
     if K.image_data_format() == 'channels_first':
         output_shape = (2*nfilter, int(sample_size/4), 1)
     else:
         output_shape = (int(sample_size/4), 1, 2*nfilter)
-    reshape = Reshape(output_shape)(decoder_upsample)
+    reshape = Reshape(output_shape)(relu_int)
     #shape = (batch_size, filters)
     deconv1 = Conv2DTranspose(
         filters=nfilter,
@@ -124,10 +126,11 @@ def vae_model(config_data, vocab, step):
         activity_regularizer=l2_regularizer
     )(reshape)
     bn3 = BatchNormalization(
+        scale=False,
         beta_regularizer=l2_regularizer,
         gamma_regularizer=l2_regularizer
     )(deconv1)
-    relu3 = Activation(activation='relu')(bn3)
+    relu3 = PReLU()(bn3)
     deconv2 = Conv2DTranspose(
         filters=out_size,
         kernel_size=(3, 1),
@@ -138,10 +141,11 @@ def vae_model(config_data, vocab, step):
         activity_regularizer=l2_regularizer
     )(relu3)
     bn4 = BatchNormalization(
+        scale=False,
         beta_regularizer=l2_regularizer,
         gamma_regularizer=l2_regularizer
     )(deconv2)
-    relu4 = Activation(activation='relu')(bn4)
+    relu4 = PReLU()(bn4)
     reshape = Reshape((sample_size, out_size))(relu4)
     softmax_auxiliary = Dense(
         nclasses,
@@ -281,7 +285,7 @@ class LSTMStep(Layer):
         #     initial_states[0] = T.unbroadcast(initial_states[0], 1)
 
         constants = self.lstm.get_constants(x)
-        start_word = K.zeros_like(x_shuffled[0], name='_start_word', dtype='float32')
+        start_word = K.ones_like(x_shuffled[0], name='_start_word', dtype='float32')*1e-5
 
         output_info = [
             None,

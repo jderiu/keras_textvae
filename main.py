@@ -17,7 +17,7 @@ import keras.backend as K
 
 
 from keras.callbacks import Callback, ModelCheckpoint, ReduceLROnPlateau
-from keras.optimizers import Adam, Nadam
+from keras.optimizers import Adam, Nadam, Adadelta
 from output_text import output_text
 
 class NewCallback(Callback):
@@ -208,13 +208,14 @@ def main(args):
             model_checkpoint = ModelCheckpoint('models/vae_model/weights.{epoch:02d}.hdf5', period=10, save_weights_only=True)
             reduce_callback = ReduceLROnPlateau(monitor='val_loss', factor=0.995, patience=100, min_lr=0.001, cooldown=50)
 
-            optimizer = Nadam(lr=0.002, beta_1=0.9, beta_2=0.999, epsilon=1e-8, schedule_decay=0.001, clipnorm=10)
+            #optimizer = Nadam(lr=0.002, beta_1=0.9, beta_2=0.999, epsilon=1e-8, schedule_decay=0.001, clipnorm=10)
+            optimizer = Adadelta(lr=1.0, epsilon=1e-8, rho=0.95, decay=0.0001, clipnorm=10)
             cnn_model.compile(optimizer=optimizer, loss=lambda y_true, y_pred: y_pred)
             cnn_model.fit_generator(
                 generator=generate_data_stream(config_data['training_path'], config_data, vocab, config_data['batch_size'], skip_data=skip_texts, noutputs=noutputs),
                 steps_per_epoch=steps_per_epoch,
                 epochs=ceil(config_data['nb_epochs']*(config_data['nsamples']/config_data['samples_per_epoch'])),
-                callbacks=[NewCallback(step, steps_per_epoch), OutputCallback(test_model, valid_input, 50, vocab, delimiter), terminate_on_nan, model_checkpoint, reduce_callback],
+                callbacks=[NewCallback(step, steps_per_epoch), OutputCallback(test_model, valid_input, 15, vocab, delimiter), terminate_on_nan, model_checkpoint, reduce_callback],
                 validation_data=(valid_input, valid_output),
                 initial_epoch=initial_epoch
             )
