@@ -65,7 +65,7 @@ def get_decoder(decoder_input, decoder_emb_input, nfilter, sample_size, out_size
     final_softmax_layer = Dense(nclasses, activation='softmax', name='final_softmax_layer')
     softmax_final = final_softmax_layer(recurrent_component)
 
-    decoder = Model(inputs=[decoder_input, decoder_emb_input], outputs=softmax_final)
+    decoder = Model(inputs=[decoder_input, decoder_emb_input], outputs=[softmax_final, softmax_auxiliary])
 
     inference_layer = LSTMStep(lstm, final_softmax_layer, sample_size, nclasses)(softmax_auxiliary)
     decoder_inference = Model(inputs=decoder_input, outputs=inference_layer)
@@ -74,7 +74,7 @@ def get_decoder(decoder_input, decoder_emb_input, nfilter, sample_size, out_size
 
 
 def get_descriminator(g_in, nfilter, intermediate_dim, step):
-    anneal = K.clip(- (0.1/2000.0)*step + 0.1, 0.001, 0.1)
+    anneal = K.clip(- (1/20000.0)*step + 1.0, 0.001, 1.0)
 
     noise_layer = GaussianNoise(stddev=anneal)(g_in)
     # oshape = (batch_size, sample_size/2, 128)
@@ -87,14 +87,14 @@ def get_descriminator(g_in, nfilter, intermediate_dim, step):
     relu2 = PReLU()(bn2)
     # oshape = (batch_size, sample_size/4*256)
     flatten = Flatten()(relu2)
-    hidden_intermediate_discr = Dense(intermediate_dim, activation='relu')(flatten)
+    hidden_intermediate_discr = Dense(intermediate_dim, activation='relu', name='discr_activation')(flatten)
 
     sigmoid = Dense(1, activation='sigmoid', name='discrimiator_sigmoid')(hidden_intermediate_discr)
 
-    discriminator = Model(inputs=g_in, outputs=[sigmoid, hidden_intermediate_discr])
-    #content_embedding = Model(inputs=g_in, outputs=hidden_intermediate_discr)
+    discriminator = Model(inputs=g_in, outputs=[sigmoid])
+    content_embedding = Model(inputs=g_in, outputs=flatten)
 
-    return discriminator
+    return discriminator, content_embedding
 
 
 def vae_gan_model(config_data, vocab, step):
@@ -131,21 +131,22 @@ def vae_gan_model(config_data, vocab, step):
 
     encoder, sampling_object = get_encoder(input_idx, original_sample, nfilter, intermediate_dim, z_size)
     decoder, decoder_inference = get_decoder(decoder_input, decoder_emb_input, nfilter, sample_size, out_size, nclasses, intermediate_dim, lstm_size)
-    discriminator = get_descriminator(dis_input, nfilter, intermediate_dim, step)
+    discriminator, content_embedding = get_descriminator(dis_input, nfilter, intermediate_dim, step)
 
     Z_p, Z = encoder(input_idx)
-    X_tilde = decoder(inputs=[Z, original_sample])
-    X_p = decoder(inputs=[Z_p, original_sample])
+    X_tilde, X_tilde_aux = decoder(inputs=[Z, original_sample])
+    X_p, X_p_aux = decoder(inputs=[Z_p, original_sample])
 
     X_infer = decoder_inference(Z_p)
 
     #emb_shape = (None, intermediate_dim)
-    #orig_embedding = content_embedding(original_sample)
-    #rec_embedding = content_embedding(X_tilde)
+    orig_embedding = content_embedding(original_sample)
+    rec_embedding = content_embedding(X_tilde)
+    rec_embedding_aux = content_embedding(X_tilde_aux)
 
-    dis_orig, orig_embedding = discriminator(original_sample)
-    dis_rec_tilde, rec_embedding = discriminator(X_tilde)
-    dis_rec_p, p_embedding = discriminator(X_p)
+    dis_orig = discriminator(original_sample)
+    dis_rec_tilde = discriminator(X_tilde)
+    dis_rec_p = discriminator(X_p)
 
 
 
@@ -161,9 +162,10 @@ def vae_gan_model(config_data, vocab, step):
     def dis_sim_measure(args):
         oemb, remb = args
 
-        elem_mult = K.square(oemb - remb)
-
-        distance = K.sqrt(K.sum(elem_mult, axis=1) + 1e-5)
+        distance = oemb - remb
+        squared_distance = K.square(distance)
+        sum_of_squared_dist = K.sum(squared_distance, axis=1)
+        distance = K.sqrt(sum_of_squared_dist)
 
         return distance
 
@@ -182,25 +184,28 @@ def vae_gan_model(config_data, vocab, step):
         return - K.log(K.clip(x_fake, eps, 1-eps))
 
     dis_l_loss = Lambda(dis_sim_measure, output_shape=(1,), name='discrimiator_similarity')([orig_embedding, rec_embedding])
-    reconstruction_loss = Lambda(vae_cross_ent_loss, output_shape=(1,), name='reconstruction_error')([original_sample, X_p])
+    dis_l_loss_aux = Lambda(dis_sim_measure, output_shape=(1,), name='discrimiator_aux_similarity')([orig_embedding, rec_embedding_aux])
+    #reconstruction_loss = Lambda(vae_cross_ent_loss, output_shape=(1,), name='reconstruction_error')([original_sample, X_p])
     kld_loss = Lambda(vae_kld_loss, output_shape=(1,), name='kld_loss')([original_sample])
     gan_loss = Lambda(gan_classification_loss, output_shape=(1,), name='gan_loss')([dis_orig, dis_rec_tilde, dis_rec_p])
+
     gen_tilde_loss = Lambda(generator_loss, output_shape=(1,), name='gen_til_loss')([dis_rec_tilde])
     gen_p_loss = Lambda(generator_loss, output_shape=(1,), name='gen_p_loss')([dis_rec_p])
 
     full_model = Model(inputs=[input_idx], outputs=[dis_l_loss, kld_loss, gen_p_loss, gen_tilde_loss, gan_loss])
-    encoding_train_model = Model(inputs=[input_idx], outputs=[dis_l_loss, kld_loss])
-    decoder_train_model = Model(inputs=[input_idx], outputs=[dis_l_loss, gen_tilde_loss, gen_p_loss])
+
+    encoding_train_model = Model(inputs=[input_idx], outputs=[kld_loss, dis_l_loss, dis_l_loss_aux])
+    decoder_train_model = Model(inputs=[input_idx], outputs=[dis_l_loss, dis_l_loss_aux, gen_tilde_loss, gen_p_loss])
     discriminator_train_model = Model(inputs=[input_idx], outputs=[gan_loss])
     discriminator_pretrain_model = Model(inputs=[input_idx], outputs=[dis_orig])
 
     inference_model = Model(inputs=[input_idx], outputs=[X_infer])
 
-    optimizer = Adadelta(lr=1.0, decay=0.0001, clipnorm=10)
+    optimizer = Adadelta(lr=1.0 , decay=0.0001, clipnorm=10)
 
     full_model.compile(optimizer=optimizer, loss=lambda y_true, y_pred: y_pred)
-    encoding_train_model.compile(optimizer=optimizer, loss=lambda y_true, y_pred: y_pred)
-    decoder_train_model.compile(optimizer=optimizer, loss=lambda y_true, y_pred: y_pred, loss_weights=[0.2, 1.0, 1.0])
+    encoding_train_model.compile(optimizer=optimizer, loss=lambda y_true, y_pred: y_pred, loss_weights=[1.0, 1.0, 0.2])
+    decoder_train_model.compile(optimizer=optimizer, loss=lambda y_true, y_pred: y_pred, loss_weights=[0.2, 0.2*0.2, 1.0, 1.0])
     discriminator_train_model.compile(optimizer=optimizer, loss=lambda y_true, y_pred: y_pred)
     discriminator_pretrain_model.compile(optimizer=optimizer, loss='binary_crossentropy')
 

@@ -130,7 +130,7 @@ def main(args):
         filemode = 'w'
 
     logging.basicConfig(format='%(asctime)s : %(levelname)s : %(message)s', level=logging.INFO,
-                        filename='logging/evolution.log', filemode=filemode)
+                        filename='logging/vae_gan/evolution.log', filemode=filemode)
 
     with open(config_fname, 'r') as json_data:
         config_data = json.load(json_data)
@@ -230,12 +230,12 @@ def main(args):
                 set_trainability(encoder, trainable=True)
                 set_trainability(decoder, trainable=False)
                 set_trainability(discriminator, trainable=False)
-                enc_outs = encoding_train_model.train_on_batch(X, y[:2])
+                enc_outs = encoding_train_model.train_on_batch(X, y[:3])
 
                 set_trainability(encoder, trainable=False)
                 set_trainability(decoder, trainable=True)
                 set_trainability(discriminator, trainable=False)
-                dec_outs = decoder_train_model.train_on_batch(X, y[:3])
+                dec_outs = decoder_train_model.train_on_batch(X, y[:4])
 
                 set_trainability(encoder, trainable=False)
                 set_trainability(decoder, trainable=False)
@@ -255,8 +255,8 @@ def main(args):
 
                 # Epoch finished.
                 if steps_done >= steps_per_epoch:
-                    enc_val_outs = encoding_train_model.evaluate(valid_input, valid_output[:2], verbose=False)
-                    dec_val_outs = decoder_train_model.evaluate(valid_input, valid_output[:3], verbose=False)
+                    enc_val_outs = encoding_train_model.evaluate(valid_input, valid_output[:3], verbose=False)
+                    dec_val_outs = decoder_train_model.evaluate(valid_input, valid_output[:4], verbose=False)
                     dis_val_outs = discriminator_train_model.evaluate(valid_input, valid_output[0], verbose=False)
 
                     val_outs = enc_val_outs + dec_val_outs + [dis_val_outs]
