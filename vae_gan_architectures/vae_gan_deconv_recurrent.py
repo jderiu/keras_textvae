@@ -188,9 +188,9 @@ def vae_gan_model(config_data, vocab, step):
     gen_tilde_loss = Lambda(generator_loss, output_shape=(1,), name='gen_til_loss')([dis_rec_tilde])
     gen_p_loss = Lambda(generator_loss, output_shape=(1,), name='gen_p_loss')([dis_rec_p])
 
-    full_model = Model(inputs=[input_idx], outputs=[dis_sim_measure, kld_loss, gen_p_loss, gen_tilde_loss, gan_loss])
-    encoding_train_model = Model(inputs=[input_idx], outputs=[dis_sim_measure, kld_loss])
-    decoder_train_model = Model(inputs=[input_idx], outputs=[dis_sim_measure, gen_tilde_loss, gen_p_loss])
+    full_model = Model(inputs=[input_idx], outputs=[dis_l_loss, kld_loss, gen_p_loss, gen_tilde_loss, gan_loss])
+    encoding_train_model = Model(inputs=[input_idx], outputs=[dis_l_loss, kld_loss])
+    decoder_train_model = Model(inputs=[input_idx], outputs=[dis_l_loss, gen_tilde_loss, gen_p_loss])
     discriminator_train_model = Model(inputs=[input_idx], outputs=[gan_loss])
     discriminator_pretrain_model = Model(inputs=[input_idx], outputs=[dis_orig])
 
