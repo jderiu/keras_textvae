@@ -6,7 +6,7 @@
   "intermediate_dim": 200,
   "tweets_path": "en_full",
   "vocab_path": "en_full",
-  "training_path": "E:/Tweets WordEmbeddings/wemb_en200M.gz",
+  "training_path": "F:/Tweets WordEmbeddings/wemb_en200M.gz",
   "nsamples": 200000000,
   "samples_per_epoch": 20000,
   "base_model_path": "models/base_cnn_model.h5",

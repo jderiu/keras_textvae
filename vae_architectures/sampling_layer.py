@@ -11,7 +11,7 @@ class Sampling(Layer):
     def call(self, z):
         mu = z[:, :self.z_size]
         log_sigma = z[:, self.z_size:]
-        eps = K.random_normal(shape=mu.shape)
+        eps = K.random_normal(shape=K.shape(mu))
 
         z_out = mu + K.exp(0.5*log_sigma)*eps
         #store to make them accessible to the loss later on

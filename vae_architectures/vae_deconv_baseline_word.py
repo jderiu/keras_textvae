@@ -84,19 +84,20 @@ def vae_model(config_data, vocab, step):
     hidden = Dense(out_size, activation='linear')(hidden)
     hidden = Dense(out_size, activation='linear')(hidden)
 
-    def argmax_fun(softmax_output):
-        return K.argmax(softmax_output, axis=2)
 
     def vae_cosine_distance_loss(args):
         x_truth, x_decoded_final = args
 
         #normalize over embedding-dimension
-        xt_mag = K.l2_normalize(x_truth, axis=2)
-        xp_mag = K.l2_normalize(x_decoded_final, axis=2)
+        xt_mag = K.l2_normalize(x_truth, axis=2) #None, 40, 200
+        xp_mag = K.l2_normalize(x_decoded_final, axis=2)#None, 40, 200
 
-        cosine_distance = 1 - K.batch_dot(xt_mag, xp_mag, axes=[2, 2]) #size = None, 128
+        elem_mult = xt_mag*xp_mag
+        cosine_sim = K.sum(elem_mult, axis=2) #None, 40
 
-        sum_over_sentences = K.sum(cosine_distance, axis=1)
+        cosine_distance = 1 - cosine_sim #size = None, 40
+
+        sum_over_sentences = K.sum(cosine_distance, axis=1)#None
         return sum_over_sentences
 
     def vae_mse_loss(args):
@@ -112,15 +113,10 @@ def vae_model(config_data, vocab, step):
         kld_weight = K.clip((step - anneal_start) / (anneal_end - anneal_start), 0, 1 - eps) + eps
         return kl_loss*kld_weight
 
-    def identity_loss(y_true, y_pred):
-        return y_pred
-
-    main_loss = Lambda(vae_mse_loss, output_shape=(1,), name='main_loss')([input_word_embeddings, hidden])
+    main_loss = Lambda(vae_cosine_distance_loss, output_shape=(1,), name='main_loss')([input_word_embeddings, hidden])
     kld_loss = Lambda(vae_kld_loss, output_shape=(1,), name='kld_loss')([input_word_embeddings])
 
     prediction = PredictionLayer(word_embedding_layer, sample_size, nclasses)(hidden)
-
-    #argmax = Lambda(argmax_fun, output_shape=(sample_size,))(reshape)
 
     train_model = Model(inputs=[input_idx], outputs=[main_loss, kld_loss])
 

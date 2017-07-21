@@ -19,7 +19,7 @@ def generate_data_stream(fname, config_data, vocabulary, batch_size, noutputs=2,
     max_sentence_len = config_data['max_sentence_length']
     dummy_word_idx = vocabulary['DUMMY_WORD']
     outputs = [np.ones(batch_size)]*noutputs
-    vocabulary = {k: v[0] for k, v in vocabulary.items()}
+    #vocabulary = {k: v[0] for k, v in vocabulary.items()}
     current_batch = []
     while True:
         if fname.endswith('.tsv'):
@@ -43,8 +43,6 @@ def generate_data_stream(fname, config_data, vocabulary, batch_size, noutputs=2,
 
 
 def load_data(fname, config_data, vocabulary, noutputs):
-    vocabulary = {k: v[0] for k, v in vocabulary.items()}
-
     max_sentence_len = config_data['max_sentence_length']
 
     input_data, output_data = transform_data(fname, vocabulary, max_sentence_len, noutputs)
@@ -74,7 +72,7 @@ if __name__ == "__main__":
     idx_to_rel_freq = {v[0]: v[1]/word_sum for k, v in vocab.items()}
     sorted_idx_to_freq = sorted(idx_to_rel_freq.items(), key=lambda v: v[1], reverse=True)
     print(sorted_idx_to_freq[:10])
-    freq_vec = np.ones(shape=(len(sorted_idx_to_freq),1))
+    freq_vec = np.ones(shape=(len(sorted_idx_to_freq), 1))
 
     for k, v in sorted_idx_to_freq:
         freq_vec[k] = v

@@ -22,11 +22,11 @@ def vae_model(config_data, vocab, step):
     nfilter = 128
     out_size = 200
     eps = 0.001
-    anneal_start = 1000.0
-    anneal_end = anneal_start + 7000.0
+    anneal_start = 200000.0
+    anneal_end = anneal_start + 200000.0
 
     embedding_path = join(config_data['vocab_path'], 'embedding_matrix.npy')
-    embedding_matrix = np.load(open(embedding_path))
+    embedding_matrix = np.load(open(embedding_path, 'rb'))
     nclasses = embedding_matrix.shape[0]
     emb_dim = embedding_matrix.shape[1]
 
@@ -43,7 +43,7 @@ def vae_model(config_data, vocab, step):
         input_dim=nclasses,
         output_dim=emb_dim,
         weights=[embedding_matrix],
-        trainable=False,
+        trainable=True,
         name='word_embeddings'
     )
 
@@ -145,14 +145,9 @@ def vae_model(config_data, vocab, step):
     )(deconv2)
     relu4 = Activation(activation='relu')(bn4)
     reshape = Reshape((sample_size, out_size))(relu4)
-    softmax_auxiliary = Dense(
-        nclasses,
-        activation='softmax',
-        name='auxiliary_softmax_layer',
-        kernel_regularizer=l2_regularizer,
-        bias_regularizer=l2_regularizer,
-        activity_regularizer=l2_regularizer
-    )(reshape)
+    hidden = Dense(out_size, activation='linear')(reshape)
+    hidden = Dense(out_size, activation='linear')(hidden)
+    hidden_auxiliary = Dense(out_size, activation='linear', name='auxiliary_output')(hidden)
 
     def argmax_fun(softmax_output):
         return K.argmax(softmax_output, axis=2)
@@ -161,9 +156,9 @@ def vae_model(config_data, vocab, step):
         return x[:, :-1, :]
 
     padding = ZeroPadding1D(padding=(1, 0))(input_one_hot_embeddings)
-    previous_char_slice = Lambda(remove_last_column, output_shape=(sample_size, nclasses))(padding)
+    previous_char_slice = Lambda(remove_last_column, output_shape=(sample_size, out_size))(padding)
 
-    combined_input = concatenate(inputs=[softmax_auxiliary, previous_char_slice], axis=2)
+    combined_input = concatenate(inputs=[hidden_auxiliary, previous_char_slice], axis=2)
     #MUST BE IMPLEMENTATION 1 or 2
     lstm = LSTM(
         200,
@@ -175,23 +170,27 @@ def vae_model(config_data, vocab, step):
         activity_regularizer=l2_regularizer
     )
     recurrent_component = lstm(combined_input)
-    final_softmax_layer = Dense(
-        nclasses,
-        activation='softmax',
-        name='final_softmax_layer',
-        kernel_regularizer=l2_regularizer,
-        bias_regularizer=l2_regularizer,
-        activity_regularizer=l2_regularizer)
+    hidden_0 = Dense(out_size, activation='linear')
+    hidden_1 = Dense(out_size, activation='linear')
+    hidden_final = Dense(out_size, activation='linear', name='final_output')
 
-    softmax_final = final_softmax_layer(recurrent_component)
+    hidden_0_inst = hidden_0(recurrent_component)
+    hidden_1_inst = hidden_1(hidden_0_inst)
+    softmax_final = hidden_final(hidden_1_inst)
 
-    def vae_cross_ent_loss(args):
+    def vae_cosine_distance_loss(args):
         x_truth, x_decoded_final = args
-        x_truth_flatten = K.flatten(x_truth)
-        x_decoded_flat = K.reshape(x_decoded_final, shape=(-1, K.shape(x_decoded_final)[-1]))
-        cross_ent = T.nnet.categorical_crossentropy(x_decoded_flat, x_truth_flatten)
-        cross_ent = K.reshape(cross_ent, shape=(-1, K.shape(x_truth)[1]))
-        sum_over_sentences = K.sum(cross_ent, axis=1)
+
+        #normalize over embedding-dimension
+        xt_mag = K.l2_normalize(x_truth, axis=2) #None, 40, 200
+        xp_mag = K.l2_normalize(x_decoded_final, axis=2)#None, 40, 200
+
+        elem_mult = xt_mag*xp_mag
+        cosine_sim = K.sum(elem_mult, axis=2) #None, 40
+
+        cosine_distance = 1 - cosine_sim #size = None, 40
+
+        sum_over_sentences = K.sum(cosine_distance, axis=1)#None
         return sum_over_sentences
 
     def vae_kld_loss(args):
@@ -199,28 +198,17 @@ def vae_model(config_data, vocab, step):
         kld_weight = K.clip((step - anneal_start) / (anneal_end - anneal_start), 0, 1 - eps) + eps
         return kl_loss*kld_weight
 
-    def vae_aux_loss(args):
-        x_truth, x_decoded = args
-        x_truth_flatten = K.flatten(x_truth)
-        x_decoded_flat = K.reshape(x_decoded, shape=(-1, K.shape(x_decoded)[-1]))
-        cross_ent = T.nnet.categorical_crossentropy(x_decoded_flat, x_truth_flatten)
-        cross_ent = K.reshape(cross_ent, shape=(-1, K.shape(x_truth)[1]))
-        sum_over_sentences = K.sum(cross_ent, axis=1)
-        return alpha*sum_over_sentences
 
     def identity_loss(y_true, y_pred):
         return y_pred
 
-    main_loss = Lambda(vae_cross_ent_loss, output_shape=(1,), name='main_loss')([input_idx, softmax_final])
-    kld_loss = Lambda(vae_kld_loss, output_shape=(1,), name='kld_loss')([input_one_hot_embeddings, softmax_final, softmax_auxiliary])
-    aux_loss = Lambda(vae_aux_loss, output_shape=(1,), name='auxiliary_loss')([input_idx, softmax_auxiliary])
+    main_loss = Lambda(vae_cosine_distance_loss, output_shape=(1,), name='main_loss')([input_one_hot_embeddings, softmax_final])
+    kld_loss = Lambda(vae_kld_loss, output_shape=(1,), name='kld_loss')([input_one_hot_embeddings, softmax_final, hidden_auxiliary])
+    aux_loss = Lambda(vae_cosine_distance_loss, output_shape=(1,), name='auxiliary_loss')([input_one_hot_embeddings, hidden_auxiliary])
 
-    output_gen_layer = LSTMStep(lstm, final_softmax_layer, sample_size, nclasses)(softmax_auxiliary)
+    output_gen_layer = LSTMStep(lstm, one_hot_embeddings, [hidden_0, hidden_1, hidden_final], sample_size, nclasses)(hidden_auxiliary)
 
     train_model = Model(inputs=[input_idx], outputs=[main_loss, kld_loss, aux_loss])
-
-    optimizer = Nadam(lr=0.002, beta_1=0.9, beta_2=0.999, epsilon=1e-8, schedule_decay=0.004, clipvalue=1, clipnorm=10)
-    train_model.compile(optimizer=optimizer, loss=identity_loss)
 
     test_model = Model(inputs=[input_idx], outputs=[output_gen_layer])
 
@@ -229,15 +217,15 @@ def vae_model(config_data, vocab, step):
 
 class LSTMStep(Layer):
 
-    def __init__(self, lstm, softmax_layer, input_length, nclasses, **kwargs):
+    def __init__(self, lstm, embedding_layer, hidden_block, input_length, nclasses, **kwargs):
         assert isinstance(lstm, LSTM)
-        assert isinstance(softmax_layer, Dense)
         self.lstm = lstm
         self.c = None
         self.h = None
         self.input_length = input_length
-        self.softmax_layer = softmax_layer
+        self.hidden_block = hidden_block
         self.nclasses = nclasses
+        self.embedding_weights = K.transpose(K.l2_normalize(embedding_layer.embeddings, axis=1))
         super(LSTMStep, self).__init__(**kwargs)
 
     def build(self, input_shape):
@@ -266,15 +254,23 @@ class LSTMStep(Layer):
         x_shuffled = x.dimshuffle(axes)
 
         def _step(x_i, states):
+            #x_i in batch_size, 200
             current_word_vec = states[0]
             ins = K.concatenate(tensors=[x_i, current_word_vec], axis=1)
 
             output, new_states = self.lstm.step(ins, states[1:])
 
-            outsoftmax = self.softmax_layer.call(output)
-            # argmax that returns the predicted char
-            word_idx = T.argmax(outsoftmax, axis=1)
-            current_word_vec = K.one_hot(word_idx, self.nclasses)
+            transformed_output = output
+            for hidden_layer in self.hidden_block:
+                transformed_output = hidden_layer.call(transformed_output)
+
+            norm_tr_output = K.l2_normalize(transformed_output, axis=1)
+
+            #similarity for each
+            similarity = K.dot(norm_tr_output, self.embedding_weights)#batch_size ,500k
+
+            word_idx = T.argmax(similarity, axis=1)
+            current_word_vec = K.transpose(self.embedding_weights[:, word_idx])
 
             return [word_idx] + [current_word_vec] + new_states
 

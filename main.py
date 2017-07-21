@@ -150,6 +150,12 @@ def main(args):
             vocab = {k: v[0] for k, v in vocab.items()}
             noutputs = 2
             delimiter = ' '
+        elif config_data['model_type'] == 'recurrent_word':
+            from vae_architectures.vae_deconv_recurrent_word import vae_model
+            from data_loaders.data_loader_wordlevel import load_data, generate_data_stream
+            vocab = {k: v[0] for k, v in vocab.items()}
+            noutputs = 3
+            delimiter = ' '
         else:
             from vae_architectures.vae_deconv_baseline import vae_model
             from data_loaders.data_loader_charlevel import load_data, generate_data_stream
