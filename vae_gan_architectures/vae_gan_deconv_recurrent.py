@@ -74,11 +74,11 @@ def get_decoder(decoder_input, decoder_emb_input, nfilter, sample_size, out_size
 
 
 def get_descriminator(g_in, nfilter, intermediate_dim, step):
-    anneal = K.clip(- (1/20000.0)*step + 1.0, 0.001, 1.0)
+    #anneal = K.clip(- (1/20000.0)*step + 1.0, 0.001, 1.0)
 
-    noise_layer = GaussianNoise(stddev=anneal)(g_in)
+    #noise_layer = GaussianNoise(stddev=anneal)(g_in)
     # oshape = (batch_size, sample_size/2, 128)
-    conv1 = Conv1D(filters=nfilter, kernel_size=3, strides=2, padding='same')(noise_layer)
+    conv1 = Conv1D(filters=nfilter, kernel_size=3, strides=2, padding='same')(g_in)
     bn1 = BatchNormalization(scale=False)(conv1)
     relu1 = PReLU()(bn1)
     # oshape = (batch_size, sample_size/4, 128)
@@ -201,7 +201,7 @@ def vae_gan_model(config_data, vocab, step):
 
     inference_model = Model(inputs=[input_idx], outputs=[X_infer])
 
-    optimizer = Adadelta(lr=1.0 , decay=0.0001, clipnorm=10)
+    optimizer = RMSprop(lr=0.0003, decay=0.0001, clipnorm=10)
 
     full_model.compile(optimizer=optimizer, loss=lambda y_true, y_pred: y_pred)
     encoding_train_model.compile(optimizer=optimizer, loss=lambda y_true, y_pred: y_pred, loss_weights=[1.0, 1.0, 0.2])
