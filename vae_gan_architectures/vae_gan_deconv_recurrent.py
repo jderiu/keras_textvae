@@ -201,11 +201,11 @@ def vae_gan_model(config_data, vocab, step):
 
     inference_model = Model(inputs=[input_idx], outputs=[X_infer])
 
-    optimizer = RMSprop(lr=0.0003, decay=0.0001, clipnorm=10)
+    optimizer = RMSprop(lr=0.00003, decay=0.0001, clipnorm=10)
 
     full_model.compile(optimizer=optimizer, loss=lambda y_true, y_pred: y_pred)
     encoding_train_model.compile(optimizer=optimizer, loss=lambda y_true, y_pred: y_pred, loss_weights=[1.0, 1.0, 0.2])
-    decoder_train_model.compile(optimizer=optimizer, loss=lambda y_true, y_pred: y_pred, loss_weights=[0.2, 0.2*0.2, 1.0, 1.0])
+    decoder_train_model.compile(optimizer=optimizer, loss=lambda y_true, y_pred: y_pred, loss_weights=[0.2, 0.2*0.2, 1.0,1.0])
     discriminator_train_model.compile(optimizer=optimizer, loss=lambda y_true, y_pred: y_pred)
     discriminator_pretrain_model.compile(optimizer=optimizer, loss='binary_crossentropy')
 

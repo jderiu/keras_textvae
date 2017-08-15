@@ -21,6 +21,19 @@ def preprocess(tweet):
     return list(map(lambda x: x.replace(' ', ''), tweet))
 
 
+def preprocess_char_x_word(tweet):
+    # lowercase and normalize urls
+    tweet = tweet.lower()
+    tweet = tweet.replace('\n', '')
+    tweet = re.sub('((www\.[^\s]+)|(https?://[^\s]+)|(http?://[^\s]+))', 'URLTOK', tweet)
+    tweet = re.sub('@[^\s]+', 'USRTOK', tweet)
+    tweet = re.sub(r'#([^\s]+)', r'\1', tweet)
+
+    tweet_tok = tokenzer.tokenize(tweet)
+
+    return list(map(lambda x: x.replace(' ', ''), tweet_tok))
+
+
 def convert2indices(data, alphabet, dummy_word_idx, unk_word_idx, max_sent_length=140, verbose=0):
     data_idx = []
     max_len = 0
@@ -45,3 +58,5 @@ def convert2indices(data, alphabet, dummy_word_idx, unk_word_idx, max_sent_lengt
         print("Number of unknown words:", unknown_words)
         print("Number of known words:", known_words)
     return data_idx
+
+

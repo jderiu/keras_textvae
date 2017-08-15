@@ -1,0 +1,333 @@
+import keras.backend as K
+import numpy as np
+from keras.layers import Lambda, Conv1D, Conv2DTranspose, Embedding, Input, BatchNormalization, Activation, Flatten, \
+    Dense, Reshape, concatenate, LSTM, ZeroPadding1D, Layer, PReLU
+
+from keras.metrics import binary_crossentropy, categorical_crossentropy
+from keras.models import Model
+from keras.regularizers import l2
+from theano import tensor as T
+from os.path import join
+
+
+from vae_architectures.sampling_layer import Sampling
+
+
+def get_encoder(config_data, input_idx, input_one_hot_embeddings, sampling_object, nfilter):
+    intermediate_dim = config_data['intermediate_dim']
+    z_size = config_data['z_size']
+
+    conv1 = Conv1D(
+        filters=nfilter,
+        kernel_size=3,
+        strides=2,
+        padding='same'
+    )(input_one_hot_embeddings)
+    bn1 = BatchNormalization(
+        scale=False
+    )(conv1)
+    relu1 = PReLU()(bn1)
+    # oshape = (batch_size, sample_size/4, 128)
+    conv2 = Conv1D(
+        filters=2 * nfilter,
+        kernel_size=3,
+        strides=2,
+        padding='same'
+    )(relu1)
+    bn2 = BatchNormalization(
+        scale=False
+    )(conv2)
+    relu2 = PReLU()(bn2)
+    # oshape = (batch_size, sample_size/4*256)
+    flatten = Flatten()(relu2)
+    # need to store the size of the representation after the convolutions -> needed for deconv later
+    hidden_intermediate_enc = Dense(
+        intermediate_dim,
+        name='intermediate_encoding'
+    )(flatten)
+    hidden_zvalues = Dense(z_size * 2)(hidden_intermediate_enc)
+
+    sampling = sampling_object(hidden_zvalues)
+
+    encoder = Model(inputs=input_idx, outputs=sampling)
+
+    return encoder
+
+
+def get_decoder(decoder_input, nfilter, sample_size, out_size, intermediate_dim):
+    decoder_input_layer = Dense(intermediate_dim, name='intermediate_decoding')
+    hidden_intermediate_dec = decoder_input_layer(decoder_input)
+    decoder_upsample = Dense(int(2 * nfilter * sample_size / 4))(hidden_intermediate_dec)
+    relu_int = PReLU()(decoder_upsample)
+    if K.image_data_format() == 'channels_first':
+        output_shape = (2 * nfilter, int(sample_size / 4), 1)
+    else:
+        output_shape = (int(sample_size / 4), 1, 2 * nfilter)
+    reshape = Reshape(output_shape)(relu_int)
+    # shape = (batch_size, filters)
+    deconv1 = Conv2DTranspose(filters=nfilter, kernel_size=(3, 1), strides=(2, 1), padding='same')(reshape)
+    bn3 = BatchNormalization(scale=False)(deconv1)
+    relu3 = PReLU()(bn3)
+    deconv2 = Conv2DTranspose(filters=out_size,  kernel_size=(3, 1), strides=(2, 1), padding='same')(relu3)
+    bn4 = BatchNormalization(scale=False)(deconv2)
+    relu4 = PReLU()(bn4)
+    reshape = Reshape((sample_size, out_size))(relu4)
+
+    decoder = Model(inputs=decoder_input, outputs=reshape)
+
+    return decoder
+
+
+def vae_model(config_data, vocab, step):
+    z_size = config_data['z_size']
+    sample_size = config_data['max_sentence_length']
+    nclasses = len(vocab) + 2
+    #last available index is reserved as start character
+    start_word_idx = nclasses - 1
+    lstm_size = config_data['lstm_size']
+    alpha = config_data['alpha']
+    intermediate_dim = config_data['intermediate_dim']
+    batch_size = config_data['batch_size']
+
+    embedding_path = join(config_data['vocab_path'], 'embedding_matrix.npy')
+    embedding_matrix = np.load(open(embedding_path, 'rb'))
+    nclasses = embedding_matrix.shape[0]
+    emb_dim = embedding_matrix.shape[1]
+    nfilter = 128
+    out_size = 200
+    eps = 0.001
+    anneal_start = 10000.0
+    anneal_end = anneal_start + 10000.0
+
+    l2_regularizer = None
+
+    sampling_object = Sampling(z_size)
+    # == == == == == =
+    # Define Char VAE
+    # == == == == == =
+    input_idx_char = Input(batch_shape=(None, sample_size), dtype='int32', name='character_input')
+
+    one_hot_weights = np.identity(nclasses)
+    #oshape = (batch_size, sample_size, nclasses)
+    one_hot_embeddings = Embedding(
+        input_length=sample_size,
+        input_dim=nclasses,
+        output_dim=nclasses,
+        weights=[one_hot_weights],
+        trainable=False,
+        name='one_hot_embeddings'
+    )
+    decoder_input = Input(shape=(z_size,), name='decoder_input')
+
+    original_sample_char = one_hot_embeddings(input_idx_char)
+    encoder_char = get_encoder(config_data, input_idx_char, original_sample_char,sampling_object, nfilter)
+    decoder_char = get_decoder(decoder_input, nfilter, sample_size, out_size, intermediate_dim)
+
+    Z_char = encoder_char(input_idx_char)
+    x_char = decoder_char(Z_char)
+
+    # == == == == == =
+    # Define Word VAE
+    # == == == == == =
+
+    input_idx_word = Input(batch_shape=(None, sample_size), dtype='int32', name='word_input')
+
+    # one_hot_weights = np.identity(nclasses)
+    # oshape = (batch_size, sample_size, nclasses)
+    word_embeddings = Embedding(
+        input_length=sample_size,
+        input_dim=nclasses,
+        output_dim=emb_dim,
+        weights=[embedding_matrix],
+        trainable=True,
+        name='word_embeddings'
+    )
+
+    original_sample_word = word_embeddings(input_idx_word)
+    encoder_word = get_encoder(config_data, input_idx_word, original_sample_word, sampling_object, nfilter)
+    decoder_word = get_decoder(decoder_input, nfilter, sample_size, out_size, intermediate_dim)
+
+    Z_word = encoder_word(input_idx_word)
+    x_word = decoder_word(Z_word)
+
+    # == == == == == =
+    # Conbined VAE
+    # == == == == == =
+
+    auxiliary_char = Dense(
+        nclasses,
+        activation='softmax',
+        name='auxiliary_softmax_layer',
+        kernel_regularizer=l2_regularizer,
+        bias_regularizer=l2_regularizer,
+        activity_regularizer=l2_regularizer
+    )(x_char)
+
+    hidden = Dense(out_size, activation='linear')(x_word)
+    hidden = Dense(out_size, activation='linear')(hidden)
+    auxiliary_word = Dense(out_size, activation='linear', name='auxiliary_output')(hidden)
+
+    def argmax_fun(softmax_output):
+        return K.argmax(softmax_output, axis=2)
+
+    def remove_last_column(x):
+        return x[:, :-1, :]
+
+    padding = ZeroPadding1D(padding=(1, 0))(original_sample_char)
+    previous_char_slice = Lambda(remove_last_column, output_shape=(sample_size, nclasses))(padding)
+
+    aux_combined = concatenate(inputs=[auxiliary_char, auxiliary_word])
+    combined_input = concatenate(inputs=[auxiliary_char, original_sample_word, previous_char_slice], axis=2)
+    #MUST BE IMPLEMENTATION 1 or 2
+    lstm = LSTM(
+        lstm_size,
+        return_sequences=True,
+        implementation=2,
+        kernel_regularizer=l2_regularizer,
+        bias_regularizer=l2_regularizer,
+        recurrent_regularizer=l2_regularizer,
+        activity_regularizer=l2_regularizer
+    )
+    recurrent_component = lstm(combined_input)
+    final_softmax_layer = Dense(
+        nclasses,
+        activation='softmax',
+        name='final_softmax_layer',
+        kernel_regularizer=l2_regularizer,
+        bias_regularizer=l2_regularizer,
+        activity_regularizer=l2_regularizer)
+
+    softmax_final = final_softmax_layer(recurrent_component)
+
+    def vae_cross_ent_loss(args):
+        x_truth, x_decoded_final = args
+        x_truth_flatten = K.flatten(x_truth)
+        x_decoded_flat = K.reshape(x_decoded_final, shape=(-1, K.shape(x_decoded_final)[-1]))
+        cross_ent = T.nnet.categorical_crossentropy(x_decoded_flat, x_truth_flatten)
+        cross_ent = K.reshape(cross_ent, shape=(-1, K.shape(x_truth)[1]))
+        sum_over_sentences = K.sum(cross_ent, axis=1)
+        return sum_over_sentences
+
+    def vae_kld_loss(args):
+        kl_loss = - 0.5 * K.sum(1 + sampling_object.log_sigma - K.square(sampling_object.mu) - K.exp(sampling_object.log_sigma), axis=-1)
+        kld_weight = K.clip((step - anneal_start) / (anneal_end - anneal_start), 0, 1 - eps) + eps
+        return kl_loss*kld_weight
+
+    def vae_aux_loss(args):
+        x_truth, x_decoded = args
+        x_truth_flatten = K.flatten(x_truth)
+        x_decoded_flat = K.reshape(x_decoded, shape=(-1, K.shape(x_decoded)[-1]))
+        cross_ent = T.nnet.categorical_crossentropy(x_decoded_flat, x_truth_flatten)
+        cross_ent = K.reshape(cross_ent, shape=(-1, K.shape(x_truth)[1]))
+        sum_over_sentences = K.sum(cross_ent, axis=1)
+        return alpha*sum_over_sentences
+
+    def identity_loss(y_true, y_pred):
+        return y_pred
+
+    main_loss = Lambda(vae_cross_ent_loss, output_shape=(1,), name='main_loss')([input_idx_char, softmax_final])
+    kld_loss = Lambda(vae_kld_loss, output_shape=(1,), name='kld_loss')([original_sample_char, softmax_final, auxiliary_char])
+    aux_loss = Lambda(vae_aux_loss, output_shape=(1,), name='auxiliary_loss')([input_idx_char, auxiliary_char])
+
+    output_gen_layer = LSTMStep(lstm, final_softmax_layer, sample_size, nclasses)(aux_combined)
+
+    train_model = Model(inputs=[input_idx_char, input_idx_word], outputs=[main_loss, kld_loss, aux_loss])
+
+    test_model = Model(inputs=[input_idx_char, input_idx_word], outputs=[output_gen_layer])
+
+    return train_model, test_model
+
+
+class LSTMStep(Layer):
+
+    def __init__(self, lstm, softmax_layer, input_length, nclasses, **kwargs):
+        assert isinstance(lstm, LSTM)
+        assert isinstance(softmax_layer, Dense)
+        self.lstm = lstm
+        self.c = None
+        self.h = None
+        self.input_length = input_length
+        self.softmax_layer = softmax_layer
+        self.nclasses = nclasses
+        super(LSTMStep, self).__init__(**kwargs)
+
+    def build(self, input_shape):
+        super(LSTMStep, self).build(input_shape)
+
+    def reset_state(self):
+        self.c = None
+        self.h = None
+
+    def compute_output_shape(self, input_shape):
+        return input_shape[0], input_shape[1]
+
+    def get_initial_states(self, inputs):
+        # build an all-zero tensor of shape (samples, output_dim)
+        initial_state = K.zeros_like(inputs)  # (samples, timesteps, input_dim)
+        initial_state = K.sum(initial_state, axis=(1, 2))  # (samples,)
+        initial_state = K.expand_dims(initial_state)  # (samples, 1)
+        initial_state = K.tile(initial_state, [1, self.lstm.units])  # (samples, output_dim)
+        initial_states = [initial_state for _ in range(len(self.lstm.states))]
+        return initial_states
+
+    def call(self, x):
+        ndim = x.ndim
+        axes = [1, 0] + list(range(2, ndim))
+        #(sample_size, batch_size, lstm_size) since we iterate over the samples
+        x_shuffled = x.dimshuffle(axes)
+
+        def _step(x_i, states):
+            current_word_vec = states[0]
+            ins = K.concatenate(tensors=[x_i, current_word_vec], axis=1)
+
+            output, new_states = self.lstm.step(ins, states[1:])
+
+            outsoftmax = self.softmax_layer.call(output)
+            # argmax that returns the predicted char
+            word_idx = T.argmax(outsoftmax, axis=1)
+            current_word_vec = K.one_hot(word_idx, self.nclasses)
+
+            return [word_idx] + [current_word_vec] + new_states
+
+        initial_states = self.get_initial_states(x)
+        # if len(initial_states) > 0:
+        #     initial_states[0] = T.unbroadcast(initial_states[0], 1)
+
+        constants = self.lstm.get_constants(x)
+        start_char = K.ones_like(x_shuffled[0], name='_start_word', dtype='float32')*1e-5
+
+        output_info = [
+            None,
+            dict(initial=start_char, taps=[-1]),
+            dict(initial=initial_states[0], taps=[-1]),
+            dict(initial=initial_states[1], taps=[-1]),
+        ]
+
+        indices = list(range(self.input_length))
+
+        successive_words = []
+        states = initial_states
+        for i in indices:
+            output = _step(x_shuffled[i], [start_char] + states + constants)
+            start_char = output[1]
+            states = output[2:]
+            successive_words.append(output[0])
+
+        outputs = T.stack(*successive_words).dimshuffle([1, 0])
+
+        # results, _ = theano.scan(
+        #     _step,
+        #     sequences=x,
+        #     outputs_info=output_info,
+        #     non_sequences=constants,
+        #     go_backwards=self.lstm.go_backwards)
+
+        # deal with Theano API inconsistency
+        # if isinstance(results, list):
+        #     outputs = results[0]
+        #     states = results[1:]
+        # else:
+        #     outputs = results
+        #     states = []
+
+        return outputs
