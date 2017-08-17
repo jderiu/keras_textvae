@@ -33,8 +33,6 @@ RUN apt-get update && apt-get install -y \
 		libzmq3-dev \
 		nano \
 		pkg-config \
-		python3-dev \
-		python3-pip \
 		software-properties-common \
 		unzip \
 		vim \
@@ -49,79 +47,55 @@ RUN apt-get update && apt-get install -y \
 
 RUN apt-get upgrade
 
-# Add SNI support to Python
-RUN pip3 --no-cache-dir install \
-		pyopenssl \
-		ndg-httpsclient \
-		pyasn1
+RUN wget http://repo.continuum.io/archive/Anaconda3-4.4.0-Linux-x86_64.sh
 
-#upgrade pip to newest
-RUN python3 -m pip install --upgrade pip
+RUN ls
 
-# Install useful Python packages using apt-get to avoid version incompatibilities with Tensorflow binary
-# especially numpy, scipy, skimage and sklearn (see https://github.com/tensorflow/tensorflow/issues/2034)
-RUN apt-get update && apt-get install -y \
-		python3-numpy \
-		python3-scipy \
-		python3-nose \
-		python3-h5py \
-		python3-skimage \
-		python3-matplotlib \
-		python3-pandas \
-		python3-sklearn \
-		python3-sympy \
-		&& \
-	apt-get clean && \
-	apt-get autoremove && \
-	rm -rf /var/lib/apt/lists/*
+RUN sh -c '/bin/echo -e "\nyes\n" |bash Anaconda3-4.4.0-Linux-x86_64.sh'
 
-# Install other useful Python packages using pip
-RUN pip3 --no-cache-dir install --upgrade ipython && \
-	pip3 --no-cache-dir install \
-		Cython \
-		ipykernel \
-		jupyter \
-		path.py \
-		Pillow \
-		pygments \
-		six \
-		sphinx \
-		wheel \
-		zmq \
-		&& \
-	python3 -m ipykernel.kernelspec
+ENV PATH "$PATH:/root/anaconda3/bin"
 
+RUN conda install numpy scipy mkl nose sphinx
+
+RUN conda install theano pygpu
 
 #Install Theano
-RUN pip3 install --upgrade git+git://github.com/Theano/Theano.git && \
-	\
-	echo "[global]\ndevice=cuda0\nfloatX=float32\noptimizer_including=cudnn\nmode=FAST_RUN \
+RUN echo "[global]\ndevice=cuda0\nfloatX=float32\noptimizer_including=cudnn\nmode=FAST_RUN \
 		\n[lib]\ncnmem=0.95 \
-		\n[nvcc]\nfastmath=True \
-		\n[blas]\nldflag = -L/usr/lib/openblas-base -lopenblas \
-		\n[DebugMode]\ncheck_finite=1" \
+		\n[nvcc]\nfastmath=True" \
 	> /root/.theanorc
 
 # Install TensorFlow
-RUN pip3 install --no-cache-dir --upgrade tensorflow-gpu
+RUN pip install --ignore-installed --upgrade https://storage.googleapis.com/tensorflow/linux/cpu/tensorflow-1.2.1-cp36-cp36m-linux_x86_64.whl
 
 # Install Keras
-RUN pip3 install --no-cache-dir --upgrade keras
-RUN pip3 install --no-cache-dir --upgrade nltk
-RUN pip3 install --no-cache-dir --upgrade tqdm
-RUN pip3 install --no-cache-dir --upgrade gensim
+RUN pip install --no-cache-dir --upgrade keras
+RUN mkdir /root/.keras/
+RUN touch /root/.keras/keras.json
 
-RUN python3 -m nltk.downloader punkt
-RUN python3 -m nltk.downloader stopwords
+RUN echo "{"floatx": "float32",\n"epsilon": 1e-07,\n"backend": "theano",\n"image_data_format": "channels_last"}" \
+	> /root/.keras/keras.json
+	
+	
+
+
+RUN pip install --no-cache-dir --upgrade nltk
+RUN pip install --no-cache-dir --upgrade tqdm
+RUN pip install --no-cache-dir --upgrade gensim
+
+RUN python -m nltk.downloader punkt
+RUN python -m nltk.downloader stopwords
 
 
 RUN mkdir /DLFramework
 
 COPY vae_architectures /DLFramework/vae_architectures
+COPY vae_gan_architectures /DLFramework/vae_gan_architectures
+COPY data_loaders /DLFramework/data_loaders
 COPY preprocessing_utils.py /DLFramework
 COPY output_text.py /DLFramework
-COPY data_loader.py /DLFramework
 COPY main.py /DLFramework
+COPY main_hybrid.py /DLFramework
 
 WORKDIR /DLFramework
 

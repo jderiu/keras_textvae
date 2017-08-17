@@ -60,3 +60,30 @@ def convert2indices(data, alphabet, dummy_word_idx, unk_word_idx, max_sent_lengt
     return data_idx
 
 
+def hybrid_convert2indices(data, tokenized_data, alphabet, dummy_word_idx, unk_word_idx, max_sent_length=128, verbose=0):
+    data_idx = []
+    max_len = 0
+    unknown_words = 0
+    known_words = 0
+    for sentence, sent_toks in zip(data, tokenized_data):
+        sentence = sentence.lower()
+        ex = np.ones(max_sent_length)*dummy_word_idx
+        max_len = max(len(sent_toks), max_len)
+        if len(sent_toks) > max_sent_length:
+            sent_toks = sent_toks[:max_sent_length]
+        sent_ptr = 0
+        for i, token in enumerate(sent_toks):
+            vocab_idx = alphabet.get(token, (unk_word_idx, 1))[0]
+            sidx = sentence.find(token, sent_ptr)
+            ex[sidx:sidx + len(token)] = vocab_idx
+            if vocab_idx == unk_word_idx:
+                unknown_words += 1
+            else:
+                known_words += 1
+        data_idx.append(ex)
+    data_idx = np.array(data_idx).astype('float32')
+    if verbose == 1:
+        print("Max length in this batch:", max_len)
+        print("Number of unknown words:", unknown_words)
+        print("Number of known words:", known_words)
+    return data_idx

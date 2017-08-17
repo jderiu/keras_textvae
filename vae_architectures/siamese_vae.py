@@ -13,7 +13,7 @@ from os.path import join
 from vae_architectures.sampling_layer import Sampling
 
 
-def get_encoder(config_data, input_idx, input_one_hot_embeddings, sampling_object, nfilter):
+def get_encoder(config_data, input_idx, input_one_hot_embeddings, sampling_object, nfilter, name):
     intermediate_dim = config_data['intermediate_dim']
     z_size = config_data['z_size']
 
@@ -49,12 +49,13 @@ def get_encoder(config_data, input_idx, input_one_hot_embeddings, sampling_objec
 
     sampling = sampling_object(hidden_zvalues)
 
-    encoder = Model(inputs=input_idx, outputs=sampling)
+    encoder = Model(inputs=input_idx, outputs=sampling, name='encoder_{}'.format(name))
 
+    encoder.summary()
     return encoder
 
 
-def get_decoder(decoder_input, nfilter, sample_size, out_size, intermediate_dim):
+def get_decoder(decoder_input, nfilter, sample_size, out_size, intermediate_dim, name):
     decoder_input_layer = Dense(intermediate_dim, name='intermediate_decoding')
     hidden_intermediate_dec = decoder_input_layer(decoder_input)
     decoder_upsample = Dense(int(2 * nfilter * sample_size / 4))(hidden_intermediate_dec)
@@ -73,31 +74,36 @@ def get_decoder(decoder_input, nfilter, sample_size, out_size, intermediate_dim)
     relu4 = PReLU()(bn4)
     reshape = Reshape((sample_size, out_size))(relu4)
 
-    decoder = Model(inputs=decoder_input, outputs=reshape)
+    decoder = Model(inputs=decoder_input, outputs=reshape, name='decoder_{}'.format(name))
 
+    decoder.summary()
     return decoder
 
 
-def vae_model(config_data, vocab, step):
+def vae_model(config_data, vocab_char, step):
     z_size = config_data['z_size']
     sample_size = config_data['max_sentence_length']
-    nclasses = len(vocab) + 2
+    nchars = len(vocab_char) + 2
     #last available index is reserved as start character
-    start_word_idx = nclasses - 1
     lstm_size = config_data['lstm_size']
     alpha = config_data['alpha']
     intermediate_dim = config_data['intermediate_dim']
-    batch_size = config_data['batch_size']
 
-    embedding_path = join(config_data['vocab_path'], 'embedding_matrix.npy')
+    embedding_path = join(config_data['vocab_word_path'], 'embedding_matrix.npy')
     embedding_matrix = np.load(open(embedding_path, 'rb'))
     nclasses = embedding_matrix.shape[0]
     emb_dim = embedding_matrix.shape[1]
     nfilter = 128
     out_size = 200
     eps = 0.001
-    anneal_start = 10000.0
-    anneal_end = anneal_start + 10000.0
+    kld_anneal_start = 40000.0
+    kld_anneal_end = kld_anneal_start + 80000.0
+
+    aux_anneal_start = 0.0
+    aux_anneal_end = aux_anneal_start + 20000.0
+
+    main_anneal_start = 0.0
+    main_anneal_end = main_anneal_start + 20000.0
 
     l2_regularizer = None
 
@@ -107,12 +113,12 @@ def vae_model(config_data, vocab, step):
     # == == == == == =
     input_idx_char = Input(batch_shape=(None, sample_size), dtype='int32', name='character_input')
 
-    one_hot_weights = np.identity(nclasses)
+    one_hot_weights = np.identity(nchars)
     #oshape = (batch_size, sample_size, nclasses)
     one_hot_embeddings = Embedding(
         input_length=sample_size,
-        input_dim=nclasses,
-        output_dim=nclasses,
+        input_dim=nchars,
+        output_dim=nchars,
         weights=[one_hot_weights],
         trainable=False,
         name='one_hot_embeddings'
@@ -120,8 +126,8 @@ def vae_model(config_data, vocab, step):
     decoder_input = Input(shape=(z_size,), name='decoder_input')
 
     original_sample_char = one_hot_embeddings(input_idx_char)
-    encoder_char = get_encoder(config_data, input_idx_char, original_sample_char,sampling_object, nfilter)
-    decoder_char = get_decoder(decoder_input, nfilter, sample_size, out_size, intermediate_dim)
+    encoder_char = get_encoder(config_data, input_idx_char, original_sample_char,sampling_object, nfilter, 'char')
+    decoder_char = get_decoder(decoder_input, nfilter, sample_size, out_size, intermediate_dim, 'char')
 
     Z_char = encoder_char(input_idx_char)
     x_char = decoder_char(Z_char)
@@ -139,13 +145,13 @@ def vae_model(config_data, vocab, step):
         input_dim=nclasses,
         output_dim=emb_dim,
         weights=[embedding_matrix],
-        trainable=True,
+        trainable=False,
         name='word_embeddings'
     )
 
     original_sample_word = word_embeddings(input_idx_word)
-    encoder_word = get_encoder(config_data, input_idx_word, original_sample_word, sampling_object, nfilter)
-    decoder_word = get_decoder(decoder_input, nfilter, sample_size, out_size, intermediate_dim)
+    encoder_word = get_encoder(config_data, input_idx_word, original_sample_word, sampling_object, nfilter, 'word')
+    decoder_word = get_decoder(decoder_input, nfilter, sample_size, out_size, intermediate_dim, 'word')
 
     Z_word = encoder_word(input_idx_word)
     x_word = decoder_word(Z_word)
@@ -155,7 +161,7 @@ def vae_model(config_data, vocab, step):
     # == == == == == =
 
     auxiliary_char = Dense(
-        nclasses,
+        nchars,
         activation='softmax',
         name='auxiliary_softmax_layer',
         kernel_regularizer=l2_regularizer,
@@ -174,28 +180,21 @@ def vae_model(config_data, vocab, step):
         return x[:, :-1, :]
 
     padding = ZeroPadding1D(padding=(1, 0))(original_sample_char)
-    previous_char_slice = Lambda(remove_last_column, output_shape=(sample_size, nclasses))(padding)
+    previous_char_slice = Lambda(remove_last_column, output_shape=(sample_size, nchars))(padding)
 
-    aux_combined = concatenate(inputs=[auxiliary_char, auxiliary_word])
-    combined_input = concatenate(inputs=[auxiliary_char, original_sample_word, previous_char_slice], axis=2)
+    combined_input = concatenate(inputs=[auxiliary_char, auxiliary_word, previous_char_slice], axis=2)
     #MUST BE IMPLEMENTATION 1 or 2
     lstm = LSTM(
         lstm_size,
         return_sequences=True,
-        implementation=2,
-        kernel_regularizer=l2_regularizer,
-        bias_regularizer=l2_regularizer,
-        recurrent_regularizer=l2_regularizer,
-        activity_regularizer=l2_regularizer
+        implementation=2
     )
     recurrent_component = lstm(combined_input)
     final_softmax_layer = Dense(
-        nclasses,
+        nchars,
         activation='softmax',
-        name='final_softmax_layer',
-        kernel_regularizer=l2_regularizer,
-        bias_regularizer=l2_regularizer,
-        activity_regularizer=l2_regularizer)
+        name='final_softmax_layer'
+    )
 
     softmax_final = final_softmax_layer(recurrent_component)
 
@@ -206,21 +205,51 @@ def vae_model(config_data, vocab, step):
         cross_ent = T.nnet.categorical_crossentropy(x_decoded_flat, x_truth_flatten)
         cross_ent = K.reshape(cross_ent, shape=(-1, K.shape(x_truth)[1]))
         sum_over_sentences = K.sum(cross_ent, axis=1)
-        return sum_over_sentences
+
+        loss_weight = K.clip((step - main_anneal_start) / (main_anneal_end - main_anneal_start), eps, 1 - eps)
+        return sum_over_sentences*loss_weight
 
     def vae_kld_loss(args):
         kl_loss = - 0.5 * K.sum(1 + sampling_object.log_sigma - K.square(sampling_object.mu) - K.exp(sampling_object.log_sigma), axis=-1)
-        kld_weight = K.clip((step - anneal_start) / (anneal_end - anneal_start), 0, 1 - eps) + eps
+        kld_weight = K.clip((step - kld_anneal_start) / (kld_anneal_end - kld_anneal_start), eps, 1 - eps)
         return kl_loss*kld_weight
 
     def vae_aux_loss(args):
         x_truth, x_decoded = args
         x_truth_flatten = K.flatten(x_truth)
-        x_decoded_flat = K.reshape(x_decoded, shape=(-1, K.shape(x_decoded)[-1]))
+        x_decoded_flat = K.clip(K.reshape(x_decoded, shape=(-1, K.shape(x_decoded)[-1])), min_value=1e-5, max_value=1 - 1e-5)
         cross_ent = T.nnet.categorical_crossentropy(x_decoded_flat, x_truth_flatten)
         cross_ent = K.reshape(cross_ent, shape=(-1, K.shape(x_truth)[1]))
         sum_over_sentences = K.sum(cross_ent, axis=1)
-        return alpha*sum_over_sentences
+
+        loss_weight = K.clip((step - aux_anneal_end) / (aux_anneal_start - aux_anneal_end), alpha, 1 - eps)
+        return loss_weight*sum_over_sentences
+
+    def vae_cosine_distance_loss(args):
+        x_truth, x_decoded_final = args
+
+        #normalize over embedding-dimension
+        xt_mag = K.l2_normalize(x_truth, axis=2) #None, 40, 200
+        xp_mag = K.l2_normalize(x_decoded_final, axis=2)#None, 40, 200
+
+        elem_mult = xt_mag*xp_mag
+        cosine_sim = K.sum(elem_mult, axis=2) #None, 40
+
+        cosine_distance = 1 - cosine_sim #size = None, 40
+
+        sum_over_sentences = K.sum(cosine_distance, axis=1) #None
+        loss_weight = K.clip((step - aux_anneal_end) / (aux_anneal_start - aux_anneal_end), alpha, 1 - eps)
+        return loss_weight*sum_over_sentences
+
+    def vae_eucledian_distance_loss(args):
+        x_truth, x_decoded_final = args
+
+        squared_dist = K.square(x_truth - x_decoded_final)
+        summed_dist = K.sum(squared_dist, axis=2) #None, 40
+        root_dist = K.sqrt(summed_dist)
+        sum_over_sentences = K.sum(root_dist, axis=1)#None
+        loss_weight = K.clip((step - aux_anneal_end) / (aux_anneal_start - aux_anneal_end), alpha, 1 - eps)
+        return loss_weight*sum_over_sentences
 
     def identity_loss(y_true, y_pred):
         return y_pred
@@ -228,10 +257,12 @@ def vae_model(config_data, vocab, step):
     main_loss = Lambda(vae_cross_ent_loss, output_shape=(1,), name='main_loss')([input_idx_char, softmax_final])
     kld_loss = Lambda(vae_kld_loss, output_shape=(1,), name='kld_loss')([original_sample_char, softmax_final, auxiliary_char])
     aux_loss = Lambda(vae_aux_loss, output_shape=(1,), name='auxiliary_loss')([input_idx_char, auxiliary_char])
+    aux_word_loss = Lambda(vae_eucledian_distance_loss, output_shape=(1,), name='auxiliary_word_loss')([original_sample_word, auxiliary_word])
 
-    output_gen_layer = LSTMStep(lstm, final_softmax_layer, sample_size, nclasses)(aux_combined)
+    #aux_combined = concatenate(inputs=[auxiliary_char, auxiliary_word])
+    output_gen_layer = LSTMStep(lstm, final_softmax_layer, sample_size, nchars)([auxiliary_char, auxiliary_word])
 
-    train_model = Model(inputs=[input_idx_char, input_idx_word], outputs=[main_loss, kld_loss, aux_loss])
+    train_model = Model(inputs=[input_idx_char, input_idx_word], outputs=[main_loss, kld_loss, aux_loss, aux_word_loss])
 
     test_model = Model(inputs=[input_idx_char, input_idx_word], outputs=[output_gen_layer])
 
@@ -270,11 +301,17 @@ class LSTMStep(Layer):
         initial_states = [initial_state for _ in range(len(self.lstm.states))]
         return initial_states
 
-    def call(self, x):
+    def call(self, inputs, **kwargs):
+        x_char = inputs[0]
+        x_word = inputs[1]
+
+        x = K.concatenate(tensors=[x_char, x_word])
+
         ndim = x.ndim
         axes = [1, 0] + list(range(2, ndim))
         #(sample_size, batch_size, lstm_size) since we iterate over the samples
         x_shuffled = x.dimshuffle(axes)
+        x_c_shuffled = x_char.dimshuffle(axes)
 
         def _step(x_i, states):
             current_word_vec = states[0]
@@ -294,7 +331,7 @@ class LSTMStep(Layer):
         #     initial_states[0] = T.unbroadcast(initial_states[0], 1)
 
         constants = self.lstm.get_constants(x)
-        start_char = K.ones_like(x_shuffled[0], name='_start_word', dtype='float32')*1e-5
+        start_char = K.ones_like(x_c_shuffled[0], name='_start_word', dtype='float32')*1e-5
 
         output_info = [
             None,

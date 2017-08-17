@@ -247,7 +247,7 @@ class LSTMStep(Layer):
         initial_states = [initial_state for _ in range(len(self.lstm.states))]
         return initial_states
 
-    def call(self, x):
+    def call(self, x, **kwargs):
 
         ndim = x.ndim
         axes = [1, 0] + list(range(2, ndim))
