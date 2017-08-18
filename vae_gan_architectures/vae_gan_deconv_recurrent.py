@@ -149,7 +149,6 @@ def vae_gan_model(config_data, vocab, step):
     dis_rec_p = discriminator(X_p)
 
 
-
     def vae_cross_ent_loss(args):
         x_truth, x_decoded_final = args
         x_truth_flatten = K.reshape(x_truth, shape=(-1, K.shape(x_truth)[-1]))
@@ -201,7 +200,7 @@ def vae_gan_model(config_data, vocab, step):
 
     inference_model = Model(inputs=[input_idx], outputs=[X_infer])
 
-    optimizer = RMSprop(lr=0.00003, decay=0.0001, clipnorm=10)
+    optimizer = RMSprop(lr=0.0003, decay=0.0001, clipnorm=10)
 
     full_model.compile(optimizer=optimizer, loss=lambda y_true, y_pred: y_pred)
     encoding_train_model.compile(optimizer=optimizer, loss=lambda y_true, y_pred: y_pred, loss_weights=[1.0, 1.0, 0.2])

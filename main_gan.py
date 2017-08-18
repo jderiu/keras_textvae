@@ -50,7 +50,7 @@ class OutputCallback(Callback):
         super(OutputCallback, self).__init__()
 
     def on_epoch_begin(self, epoch, logs={}):
-        if epoch % self.frequency == self.frequency - 1:
+        if epoch % self.frequency == 0:
             output_text(self.test_model, self.validation_input, self.vocabulary, str(epoch), delimiter=self.delimiter)
 
     def on_epoch_end(self, epoch, logs={}):
@@ -240,6 +240,7 @@ def main(args):
                 set_trainability(encoder, trainable=False)
                 set_trainability(decoder, trainable=False)
                 set_trainability(discriminator, trainable=True)
+
                 dis_outs = discriminator_train_model.train_on_batch(X, y[0])
                 outs = enc_outs + dec_outs + [dis_outs]
 

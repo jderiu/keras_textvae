@@ -1,10 +1,11 @@
 from nltk.tokenize import sent_tokenize
-import bz2file
+import os
 import re
 from xml.etree.cElementTree import iterparse
 from tqdm import tqdm
 
-wiki_file = bz2file.open('F:/Wikipedia Embeddings/enwiki-20170120-pages-articles-multistream.xml.bz2', 'rb')
+#wiki_file = bz2file.open('F:/Wikipedia Embeddings/enwiki-20170120-pages-articles-multistream.xml.bz2', 'rb')
+wiki_file = open('E:/Wikipedia Embeddings/enwiki-20170120-pages-articles-multistream.xml', 'rt', encoding='utf-8')
 
 RE_P0 = re.compile('<!--.*?-->', re.DOTALL | re.UNICODE)  # comments
 RE_P1 = re.compile('<ref([> ].*?)(</ref>|/>)', re.DOTALL | re.UNICODE)  # footnotes
@@ -140,17 +141,21 @@ pageid_path = "./{%(ns)s}id" % ns_mapping
 
 title_regex = re.compile(r"==.*==")
 
-pr_file = open('F:/Wikipedia Embeddings/processed_articles.txt', 'rt')
-
-line = pr_file.readlines()[-1].replace('\n', '')
-
-if line:
-    already_processed_articles = int(line)
+fname = 'E:/Wikipedia Embeddings/processed_articles.txt'
+if os.path.exists(fname):
+    pr_file = open(fname, 'rt')
+    line = pr_file.readlines()[-1].replace('\n', '')
+    if line:
+        already_processed_articles = int(line)
+    else:
+        already_processed_articles = 0
+    pr_file.close()
 else:
     already_processed_articles = 0
-pr_file.close()
-pr_file = open('F:/Wikipedia Embeddings/processed_articles.txt', 'at')
-ofile = open('F:/Wikipedia Embeddings/wiki_sentences_{}.en.txt'.format(already_processed_articles), 'wt', encoding='utf-8')
+
+
+pr_file = open('E:/Wikipedia Embeddings/processed_articles.txt', 'at')
+ofile = open('E:/Wikipedia Embeddings/wiki_sentences_{}.en.txt'.format(already_processed_articles), 'wt', encoding='utf-8')
 
 processed_articles = 0
 elemlist = []
@@ -174,7 +179,6 @@ for elem in tqdm(elems):
                 elemlist = []
                 continue
 
-            print(len(text))
             text = remove_markup(text)
             text = text.replace('[', '').replace(']', '')
             text = text.replace('\n', ' ')

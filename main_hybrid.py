@@ -50,19 +50,21 @@ class OutputCallback(Callback):
             output_text(self.test_model, self.validation_input, self.vocabulary, str(epoch), delimiter=self.delimiter)
 
         main_loss = logs.get('main_loss_loss', '-')
-        kld_loss = logs.get('kld_loss_loss', '-')
+        kld_loss = logs.get('kld_loss_char_loss', '-')
+        kld_loss_word = logs.get('kld_loss_word_loss', '-')
         auxiliary_loss = logs.get('auxiliary_loss_loss', '-')
         auxiliary_word_loss = logs.get('auxiliary_word_loss_loss', '-')
         val_main_loss = logs.get('val_main_loss_loss', '-')
-        val_kld_loss = logs.get('val_kld_loss_loss', '-')
+        val_kld_loss = logs.get('val_kld_loss_char_loss', '-')
+        val_kld_loss_word = logs.get('val_kld_loss_word_loss', '-')
         val_auxiliary_loss = logs.get('val_auxiliary_loss_loss', '-')
         val_auxiliary_word_loss = logs.get('val_auxiliary_word_loss_loss', '-')
 
         logging.info('Epoch: {}'.format(epoch))
-        logging.info('TRA: Total Loss: {}\t Main Loss: {}\tKLD Loss: {}\tAux Char Loss: {}\t Aux Word Loss: {}'.
-                     format(logs['loss'], main_loss, kld_loss, auxiliary_loss, auxiliary_word_loss))
-        logging.info('VAL: Total Loss: {}\t Main Loss: {}\tKLD Loss: {}\tAux Char Loss: {}\t Aux Word Loss: {}'.
-                     format(logs['val_loss'], val_main_loss, val_kld_loss, val_auxiliary_loss,val_auxiliary_word_loss))
+        logging.info('TRA: Total Loss: {}\t Main Loss: {}\tKLD Char Loss: {}\tKLD Word Loss: {}\tAux Char Loss: {}\t Aux Word Loss: {}'.
+                     format(logs['loss'], main_loss, kld_loss, kld_loss_word, auxiliary_loss, auxiliary_word_loss))
+        logging.info('VAL: Total Loss: {}\t Main Loss: {}\tKLD Loss: {}\tKLD Word Loss: {}\tAux Char Loss: {}\t Aux Word Loss: {}'.
+                     format(logs['val_loss'], val_main_loss, val_kld_loss, val_kld_loss_word, val_auxiliary_loss,val_auxiliary_word_loss))
         #reset datastructures
         self.ep_begin_weights = {}
         self.ep_end_weights = {}
@@ -124,7 +126,7 @@ def main(args):
         from vae_architectures.siamese_vae import vae_model
         from data_loaders.data_loader_hybrid import load_data, generate_data_stream
         delimiter = ''
-        noutputs = 4
+        noutputs = 5
 
         logging.info('Load Training Data')
         train_input, train_output = load_data(join(tweets_path, 'en_train.tsv'),   config_data, vocab_word, vocab_char, noutputs)
