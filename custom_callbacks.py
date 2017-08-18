@@ -2,6 +2,8 @@ from output_text import output_text
 from keras.callbacks import Callback
 import numpy as np
 import logging
+import keras.backend as K
+
 
 class NewCallback(Callback):
     def __init__(self, alpha, steps_per_epoch):
