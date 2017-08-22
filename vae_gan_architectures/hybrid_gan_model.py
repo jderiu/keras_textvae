@@ -4,16 +4,17 @@ from keras.layers import Lambda, Conv1D, Embedding, Input, BatchNormalization, F
     Dense, GlobalMaxPooling1D, GaussianNoise, PReLU
 
 from keras.models import Model
-from keras.optimizers import RMSprop, Adadelta
+from keras.optimizers import RMSprop, Adadelta, Nadam
 from os.path import join
 from vae_gan_architectures.siamese_vae_gan import vae_model
 
-def get_descriminator(g_in, nfilter, intermediate_dim, step):
-    anneal = K.clip(- (1/20000.0)*step + 1.0, 0.001, 1.0)
 
-    noise_layer = GaussianNoise(stddev=anneal)(g_in)
+def get_descriminator(g_in, nfilter, intermediate_dim, step):
+    #anneal = K.clip(- (1/20000.0)*step + 1.0, 0.001, 1.0)
+
+    #noise_layer = GaussianNoise(stddev=anneal)(g_in)
     # oshape = (batch_size, sample_size/2, 128)
-    conv1 = Conv1D(filters=nfilter, kernel_size=3, strides=2, padding='same')(noise_layer)
+    conv1 = Conv1D(filters=nfilter, kernel_size=3, strides=2, padding='same')(g_in)
     bn1 = BatchNormalization(scale=False)(conv1)
     relu1 = PReLU()(bn1)
     # oshape = (batch_size, sample_size/4, 128)
@@ -131,10 +132,11 @@ def get_vae_gan_model(config_data, vocab_char, step):
     #compile the training models
     optimizer_rms = RMSprop(lr=0.0003, decay=0.0001, clipnorm=10)
     optimizer_ada = Adadelta(lr=1.0, epsilon=1e-8, rho=0.95, decay=0.0001, clipnorm=10)
+    optimizer_nadam = Nadam(lr=0.002, beta_1=0.9, beta_2=0.999, epsilon=1e-08, schedule_decay=0.001)
 
-    vae_train_model.compile(optimizer=optimizer_ada, loss=lambda y_true, y_pred: y_pred)
-    vae_gan_model.compile(optimizer=optimizer_ada, loss=lambda y_true, y_pred: y_pred)
-    discriminator_model.compile(optimizer=optimizer_ada, loss=lambda y_true, y_pred: y_pred)
+    vae_train_model.compile(optimizer=optimizer_nadam, loss=lambda y_true, y_pred: y_pred)
+    vae_gan_model.compile(optimizer=optimizer_nadam, loss=lambda y_true, y_pred: y_pred)
+    discriminator_model.compile(optimizer=optimizer_nadam, loss=lambda y_true, y_pred: y_pred)
 
     discriminators = [discr_main, discr_aux_char, discr_aux_word]
 

@@ -7,7 +7,7 @@ from collections import defaultdict
 import gzip
 import numpy as np
 import random
-import logging
+import csv
 
 
 def generate_data_stream(fname, config_data, vocabulary, batch_size, noutputs=2, skip_data=0):
@@ -18,7 +18,7 @@ def generate_data_stream(fname, config_data, vocabulary, batch_size, noutputs=2,
 
     current_batch = []
     while True:
-        if fname.endswith('.tsv'):
+        if fname.endswith('.tsv') or fname.endswith('.txt'):
             ifile = open(fname, mode='rt', encoding='utf-8')
         elif fname.endswith('.gz') or fname.endswith('.gzip'):
             ifile = gzip.open(fname, mode='rt', encoding='utf-8')
@@ -36,6 +36,30 @@ def generate_data_stream(fname, config_data, vocabulary, batch_size, noutputs=2,
                 yield batch_idx, outputs
                 current_batch = []
         ifile.close()
+
+
+def load_text_gen_data(fname, config_data, vocabulary, noutputs=3):
+    max_input_length = config_data['max_input_length']
+    max_output_length = config_data['max_output_length']
+    max_idx = max(vocabulary.values())
+    dummy_word_idx = max_idx + 1
+    reader = csv.DictReader(open(fname, encoding='utf-8', mode='rt'))
+
+    inputs_raw = []
+    outputs_raw = []
+    for row in reader:
+        i1 = row['mr']
+        i2 = row['ref']
+
+        inputs_raw.append(i1)
+        outputs_raw.append(i2)
+
+    input_idx = convert2indices(inputs_raw, vocabulary, dummy_word_idx, dummy_word_idx, max_sent_length=max_input_length)
+    target_idx = convert2indices(outputs_raw, vocabulary, dummy_word_idx, dummy_word_idx, max_sent_length=max_output_length)
+
+    outputs = [np.ones(len(input_idx))] * noutputs
+
+    return [input_idx, target_idx], outputs
 
 
 def load_data(fname, config_data, vocabulary, noutputs=2):

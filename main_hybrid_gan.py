@@ -17,7 +17,7 @@ import keras.backend as K
 
 
 from keras.callbacks import BaseLogger, ProgbarLogger, CallbackList
-from custom_callbacks import MultiModelCheckpoint, TerminateOnNaN, OutputCallback,NewCallback
+from custom_callbacks import MultiModelCheckpoint, TerminateOnNaN, OutputCallback, NewCallback
 from output_text import output_text
 from data_loaders.data_loader_hybrid import load_data, generate_data_stream
 from vae_gan_architectures.hybrid_gan_model import get_vae_gan_model
@@ -89,7 +89,7 @@ def main(args):
         initial_epoch = 0
         skip_texts = 0
 
-        save_models= [
+        save_models = [
             (vae_train_model, 'models/vae_model/vae_train_weights.hdf5'),
             (vae_gan_model, 'models/vae_model/vae_gan_weights.hdf5'),
             (discriminator_model, 'models/vae_model/discriminator_weights.hdf5'),

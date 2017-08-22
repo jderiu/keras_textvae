@@ -12,7 +12,7 @@ from theano import tensor as T
 from vae_architectures.sampling_layer import Sampling
 
 
-def get_encoder(input_idx, input_one_hot_embeddings, nfilter, z_size, intermediate_dim):
+def get_conv_stack(input_one_hot_embeddings, nfilter):
     # oshape = (batch_size, sample_size/2, 128)
     conv1 = Conv1D(
         filters=nfilter,
@@ -47,18 +47,30 @@ def get_encoder(input_idx, input_one_hot_embeddings, nfilter, z_size, intermedia
     relu3 = PReLU()(bn3)
     # oshape = (batch_size, sample_size/4*256)
     flatten = Flatten()(relu3)
+
+    return flatten
+
+
+def get_encoder(inputs, name_one_hot_embeddings, near_one_hot_embeddings, nfilter, z_size, intermediate_dim):
+    name_idx, eat_type_idx, price_range_idx, customer_feedback_idx, near_idx, food_idx, area_idx, family_idx, _ = inputs
+
+    name_conv = get_conv_stack(name_one_hot_embeddings, nfilter)
+    near_conv = get_conv_stack(near_one_hot_embeddings, nfilter)
+
+    full_concat = concatenate(inputs=[name_conv, near_conv, eat_type_idx, price_range_idx, customer_feedback_idx, food_idx, area_idx, family_idx])
+
     # need to store the size of the representation after the convolutions -> needed for deconv later
     hidden_intermediate_enc = Dense(
         intermediate_dim,
         name='intermediate_encoding'
-    )(flatten)
+    )(full_concat)
     hidden_mean = Dense(z_size, name='mu')(hidden_intermediate_enc)
     hidden_log_sigma = Dense(z_size, name='sigma')(hidden_intermediate_enc)
 
     sampling_object = Sampling(z_size)
     sampling = sampling_object([hidden_mean, hidden_log_sigma])
 
-    encoder = Model(inputs=input_idx, outputs=[sampling, hidden_mean, hidden_log_sigma])
+    encoder = Model(inputs=inputs[:-1], outputs=[sampling, hidden_mean, hidden_log_sigma])
 
     return encoder, [hidden_mean, hidden_log_sigma]
 
@@ -142,8 +154,17 @@ def vae_model(config_data, vocab, step):
     # == == == == == =
     # Define Encoder
     # == == == == == =
-    input_idx = Input(batch_shape=(None, sample_in_size), dtype='int32', name='character_input')
+    name_idx = Input(batch_shape=(None, sample_in_size), dtype='int32', name='name_idx')
+    eat_type_idx = Input(batch_shape=(None, 3), dtype='float32', name='eat_type_idx')
+    price_range_idx = Input(batch_shape=(None, 6), dtype='float32', name='price_range_idx')
+    customer_feedback_idx = Input(batch_shape=(None, 6), dtype='float32', name='customer_feedback_idx')
+    near_idx = Input(batch_shape=(None, sample_in_size), dtype='float32', name='near_idx')
+    food_idx = Input(batch_shape=(None, 7), dtype='float32', name='food_idx')
+    area_idx = Input(batch_shape=(None, 2), dtype='float32', name='area_idx')
+    family_idx = Input(batch_shape=(None, 2), dtype='float32', name='family_idx')
     output_idx = Input(batch_shape=(None, sample_out_size), dtype='int32', name='character_output')
+
+    inputs = [name_idx, eat_type_idx, price_range_idx, customer_feedback_idx, near_idx, food_idx, area_idx, family_idx, output_idx]
 
     one_hot_weights = np.identity(nclasses)
     #oshape = (batch_size, sample_size, nclasses)
@@ -165,14 +186,16 @@ def vae_model(config_data, vocab, step):
         name='one_hot_out_embeddings'
     )
 
-    input_one_hot_embeddings = one_hot_embeddings(input_idx)
+    name_one_hot_embeddings = one_hot_embeddings(name_idx)
+    near_one_hot_embeddings = one_hot_embeddings(near_idx)
+
     output_one_hot_embeddings = one_hot_out_embeddings(output_idx)
 
     decoder_input = Input(shape=(z_size,), name='decoder_input')
-    encoder, sampling_input = get_encoder(input_idx, input_one_hot_embeddings, nfilter, z_size, intermediate_dim)
+    encoder, sampling_input = get_encoder(inputs, name_one_hot_embeddings, near_one_hot_embeddings, nfilter, z_size, intermediate_dim)
     decoder = get_decoder(decoder_input, intermediate_dim, nfilter, sample_out_size, out_size, nclasses)
 
-    x_sampled, x_mean, x_los_sigma = encoder(input_idx)
+    x_sampled, x_mean, x_los_sigma = encoder(inputs[:-1])
     softmax_auxiliary = decoder(x_sampled)
     softmax_aux_mean = decoder(x_mean)
 
@@ -241,8 +264,8 @@ def vae_model(config_data, vocab, step):
 
     output_gen_layer = LSTMStep(lstm, final_softmax_layer, sample_out_size, nclasses)(softmax_aux_mean)
 
-    train_model = Model(inputs=[input_idx, output_idx], outputs=[main_loss, kld_loss, aux_loss])
-    test_model = Model(inputs=[input_idx], outputs=[output_gen_layer])
+    train_model = Model(inputs=inputs, outputs=[main_loss, kld_loss, aux_loss])
+    test_model = Model(inputs=inputs, outputs=[output_gen_layer])
 
     return train_model, test_model
 

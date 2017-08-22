@@ -94,8 +94,10 @@ COPY vae_gan_architectures /DLFramework/vae_gan_architectures
 COPY data_loaders /DLFramework/data_loaders
 COPY preprocessing_utils.py /DLFramework
 COPY output_text.py /DLFramework
+COPY custom_callbacks.py /DLFramework
 COPY main.py /DLFramework
 COPY main_hybrid.py /DLFramework
+COPY main_hybrid_gan.py /DLFramework
 
 WORKDIR /DLFramework
 

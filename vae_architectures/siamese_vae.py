@@ -3,9 +3,7 @@ import numpy as np
 from keras.layers import Lambda, Conv1D, Conv2DTranspose, Embedding, Input, BatchNormalization, Activation, Flatten, \
     Dense, Reshape, concatenate, LSTM, ZeroPadding1D, Layer, PReLU
 
-from keras.metrics import binary_crossentropy, categorical_crossentropy
 from keras.models import Model
-from keras.regularizers import l2
 from theano import tensor as T
 from os.path import join
 
@@ -42,17 +40,19 @@ def get_encoder(config_data, input_idx, input_one_hot_embeddings, nfilter, name,
     # need to store the size of the representation after the convolutions -> needed for deconv later
     hidden_intermediate_enc = Dense(
         intermediate_dim,
-        name='intermediate_encoding'
+        name='intermediate_encoding_{}'.format(name)
     )(flatten)
-    hidden_zvalues = Dense(z_size * 2)(hidden_intermediate_enc)
+    #hidden_zvalues = Dense(z_size * 2)(hidden_intermediate_enc)
+    hidden_mean = Dense(z_size, name='mu_{}'.format(name))(hidden_intermediate_enc)
+    hidden_log_sigma = Dense(z_size, name='sigma_{}'.format(name))(hidden_intermediate_enc)
 
     sampling_object = Sampling(z_size)
-    sampling = sampling_object(hidden_zvalues)
+    sampling = sampling_object([hidden_mean, hidden_log_sigma])
 
     encoder = Model(inputs=input_idx, outputs=sampling, name='encoder_{}'.format(name))
 
     encoder.summary()
-    return encoder, sampling_object
+    return encoder, [hidden_mean, hidden_log_sigma]
 
 
 def get_decoder(decoder_input, nfilter, sample_size, out_size, intermediate_dim, name):
@@ -126,7 +126,7 @@ def vae_model(config_data, vocab_char, step):
     decoder_input = Input(shape=(z_size_char,), name='decoder_input')
 
     original_sample_char = one_hot_embeddings(input_idx_char)
-    encoder_char, sampling_obj_char = get_encoder(config_data, input_idx_char, original_sample_char, nfilter, 'char', z_size_char)
+    encoder_char, sampling_char = get_encoder(config_data, input_idx_char, original_sample_char, nfilter, 'char', z_size_char)
     decoder_char = get_decoder(decoder_input, nfilter, sample_size, out_size, intermediate_dim, 'char')
 
     Z_char = encoder_char(input_idx_char)
@@ -152,7 +152,7 @@ def vae_model(config_data, vocab_char, step):
     )
 
     original_sample_word = word_embeddings(input_idx_word)
-    encoder_word, sampling_obj_word = get_encoder(config_data, input_idx_word, original_sample_word, nfilter, 'word', z_size_word)
+    encoder_word, sampling_word = get_encoder(config_data, input_idx_word, original_sample_word, nfilter, 'word', z_size_word)
     decoder_word = get_decoder(decoder_input, nfilter, sample_size, out_size, intermediate_dim, 'word')
 
     Z_word = encoder_word(input_idx_word)
@@ -211,15 +211,19 @@ def vae_model(config_data, vocab_char, step):
         sum_over_sentences = K.sum(cross_ent, axis=1)
 
         loss_weight = K.clip((step - main_anneal_start) / (main_anneal_end - main_anneal_start), eps, 1 - eps)
-        return sum_over_sentences*loss_weight
+        return sum_over_sentences#*loss_weight
 
     def vae_kld_char_loss(args):
-        kl_loss = - 0.5 * K.sum(1 + sampling_obj_char.log_sigma - K.square(sampling_obj_char.mu) - K.exp(sampling_obj_char.log_sigma), axis=-1)
+        mu, log_sigma = args
+
+        kl_loss = - 0.5 * K.sum(1 + log_sigma - K.square(mu) - K.exp(log_sigma), axis=-1)
         kld_weight = K.clip((step - kld_anneal_start) / (kld_anneal_end - kld_anneal_start), eps, 1 - eps)
         return kl_loss*kld_weight
 
     def vae_kld_word_loss(args):
-        kl_loss = - 0.5 * K.sum(1 + sampling_obj_word.log_sigma - K.square(sampling_obj_word.mu) - K.exp(sampling_obj_word.log_sigma), axis=-1)
+        mu, log_sigma = args
+
+        kl_loss = - 0.5 * K.sum(1 + log_sigma - K.square(mu) - K.exp(log_sigma), axis=-1)
         kld_weight = K.clip((step - kld_anneal_start) / (kld_anneal_end - kld_anneal_start), eps, 1 - eps)
         return kl_loss*kld_weight
 
@@ -232,7 +236,7 @@ def vae_model(config_data, vocab_char, step):
         sum_over_sentences = K.sum(cross_ent, axis=1)
 
         loss_weight = K.clip((step - aux_anneal_end) / (aux_anneal_start - aux_anneal_end), alpha, 1 - eps)
-        return loss_weight*sum_over_sentences
+        return alpha*sum_over_sentences
 
     def vae_cosine_distance_loss(args):
         x_truth, x_decoded_final = args
@@ -248,7 +252,7 @@ def vae_model(config_data, vocab_char, step):
 
         sum_over_sentences = K.sum(cosine_distance, axis=1) #None
         loss_weight = K.clip((step - aux_anneal_end) / (aux_anneal_start - aux_anneal_end), alpha, 1 - eps)
-        return loss_weight*sum_over_sentences
+        return alpha*sum_over_sentences
 
     def vae_eucledian_distance_loss(args):
         x_truth, x_decoded_final = args
@@ -258,14 +262,14 @@ def vae_model(config_data, vocab_char, step):
         root_dist = K.sqrt(summed_dist)
         sum_over_sentences = K.sum(root_dist, axis=1)#None
         loss_weight = K.clip((step - aux_anneal_end) / (aux_anneal_start - aux_anneal_end), alpha, 1 - eps)
-        return loss_weight*sum_over_sentences
+        return alpha*sum_over_sentences
 
     def identity_loss(y_true, y_pred):
         return y_pred
 
     main_loss = Lambda(vae_cross_ent_loss, output_shape=(1,), name='main_loss')([input_idx_char, softmax_final])
-    kld_loss = Lambda(vae_kld_char_loss, output_shape=(1,), name='kld_loss_char')([original_sample_char])
-    kld_loss_word = Lambda(vae_kld_word_loss, output_shape=(1,), name='kld_loss_word')([original_sample_word])
+    kld_loss = Lambda(vae_kld_char_loss, output_shape=(1,), name='kld_loss_char')(sampling_char)
+    kld_loss_word = Lambda(vae_kld_word_loss, output_shape=(1,), name='kld_loss_word')(sampling_word)
     aux_loss = Lambda(vae_aux_loss, output_shape=(1,), name='auxiliary_loss')([input_idx_char, auxiliary_char])
     aux_word_loss = Lambda(vae_eucledian_distance_loss, output_shape=(1,), name='auxiliary_word_loss')([original_sample_word, auxiliary_word])
 
