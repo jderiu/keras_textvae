@@ -95,19 +95,18 @@ def create_vocabulary(files):
     vocab_idx = {}
     counter = 0
     for i, (v, f) in enumerate(vocab_freq.items()):
-        if f > 10:
+        if f > 0:
             vocab_idx[v] = counter
             counter += 1
     return vocab_idx
 
 if __name__ == "__main__":
-    dir = 'en_full'
+    dir = 'F:/traindev'
     files = [
-        join(dir, 'en_train.tsv'),
-        join(dir, 'en_test16.tsv'),
-        join(dir, 'en_test17.tsv'),
-        join(dir, 'en_valid15.tsv')
+        join(dir, 'devel-conc.txt'),
+        join(dir, 'train-conc.txt')
     ]
 
     vocab_idx = create_vocabulary(files)
-    cPickle.dump(vocab_idx, open('en_full/vocabulary.pkl', 'wb'))
+    cPickle.dump(vocab_idx, open('F:/traindev/vocabulary.pkl', 'wb'))
+    print(len(vocab_idx))

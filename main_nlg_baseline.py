@@ -19,8 +19,8 @@ import keras.backend as K
 from keras.callbacks import Callback, ModelCheckpoint, ReduceLROnPlateau
 from keras.optimizers import Adam, Nadam, Adadelta
 from output_text import output_text
-from vae_architectures.vae_deconv_recurrent import vae_model
-from data_loaders.data_loader_nlg import load_text_gen_data
+from vae_architectures.vae_deconv_baseline_nlg import vae_model
+from data_loaders.data_loader_charlevel import load_text_gen_data
 from custom_callbacks import StepCallback, OutputCallback, TerminateOnNaN
 import time
 
@@ -63,7 +63,7 @@ def main(args):
         #== == == == == == =
 
         delimiter = ''
-        noutputs = 3
+        noutputs = 2
 
         logging.info('Load Training Data')
         train_input, train_output = load_text_gen_data(join(tweets_path, 'trainset.csv'),   config_data, vocab, noutputs)
@@ -86,8 +86,8 @@ def main(args):
         model_checkpoint = ModelCheckpoint('models/vae_model/weights.{epoch:02d}.hdf5', period=10, save_weights_only=True)
         reduce_callback = ReduceLROnPlateau(monitor='val_loss', factor=0.995, patience=100, min_lr=0.001, cooldown=50)
 
-        #optimizer = Nadam(lr=0.002, beta_1=0.9, beta_2=0.999, epsilon=1e-8, schedule_decay=0.001, clipnorm=10)
-        optimizer = Adadelta(lr=1.0, epsilon=1e-8, rho=0.95, decay=0.0001, clipnorm=10)
+        optimizer = Nadam(lr=0.002, beta_1=0.9, beta_2=0.999, epsilon=1e-8, schedule_decay=0.001, clipnorm=10)
+        #optimizer = Adadelta(lr=1.0, epsilon=1e-8, rho=0.95, decay=0.0001, clipnorm=10)
         cnn_model.compile(optimizer=optimizer, loss=lambda y_true, y_pred: y_pred)
 
         cnn_model.fit(
@@ -97,7 +97,7 @@ def main(args):
             batch_size=config_data['batch_size'],
             validation_data=(valid_input, valid_output),
             callbacks=[StepCallback(step, steps_per_epoch),
-                       OutputCallback(test_model, valid_input, 15, vocab, delimiter, fname='{}/test_output'.format(log_path)),
+                       OutputCallback(test_model, valid_input[0], 15, vocab, delimiter, fname='{}/test_output'.format(log_path)),
                        terminate_on_nan,
                        model_checkpoint,
                        reduce_callback],

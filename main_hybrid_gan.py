@@ -17,7 +17,7 @@ import keras.backend as K
 
 
 from keras.callbacks import BaseLogger, ProgbarLogger, CallbackList
-from custom_callbacks import MultiModelCheckpoint, TerminateOnNaN, OutputCallback, NewCallback
+from custom_callbacks import MultiModelCheckpoint, TerminateOnNaN, OutputCallback, StepCallback
 from output_text import output_text
 from data_loaders.data_loader_hybrid import load_data, generate_data_stream
 from vae_gan_architectures.hybrid_gan_model import get_vae_gan_model
@@ -108,7 +108,7 @@ def main(args):
 
         callback_metrics = out_labels + ['val_' + n for n in out_labels]
 
-        step_callback = NewCallback(step, steps_per_epoch)
+        step_callback = StepCallback(step, steps_per_epoch)
         output_callback = OutputCallback(vae_test_model, valid_input, 15, vocab_char, '')
         callbacks = CallbackList([BaseLogger(), ProgbarLogger(count_mode='steps'), step_callback, output_callback, model_checkpoint])
 

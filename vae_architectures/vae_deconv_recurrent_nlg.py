@@ -26,7 +26,7 @@ def get_conv_stack(input_one_hot_embeddings, nfilter):
     relu1 = PReLU()(bn1)
     # oshape = (batch_size, sample_size/4, 128)
     conv2 = Conv1D(
-        filters=2 * nfilter,
+        filters= nfilter,
         kernel_size=3,
         strides=2,
         padding='same'
@@ -36,7 +36,7 @@ def get_conv_stack(input_one_hot_embeddings, nfilter):
     )(conv2)
     relu2 = PReLU()(bn2)
     conv3 = Conv1D(
-        filters=2 * nfilter,
+        filters= nfilter,
         kernel_size=3,
         strides=2,
         padding='same',
@@ -72,6 +72,7 @@ def get_encoder(inputs, name_one_hot_embeddings, near_one_hot_embeddings, nfilte
 
     encoder = Model(inputs=inputs[:-1], outputs=[sampling, hidden_mean, hidden_log_sigma])
 
+    encoder.summary()
     return encoder, [hidden_mean, hidden_log_sigma]
 
 
@@ -144,10 +145,10 @@ def vae_model(config_data, vocab, step):
     alpha = config_data['alpha']
     intermediate_dim = config_data['intermediate_dim']
     batch_size = config_data['batch_size']
-    nfilter = 128
+    nfilter = 64
     out_size = 200
     eps = 0.001
-    anneal_start = 10000.0
+    anneal_start = 0
     anneal_end = anneal_start + 10000.0
 
     l2_regularizer = None
@@ -197,7 +198,6 @@ def vae_model(config_data, vocab, step):
 
     x_sampled, x_mean, x_los_sigma = encoder(inputs[:-1])
     softmax_auxiliary = decoder(x_sampled)
-    softmax_aux_mean = decoder(x_mean)
 
     def argmax_fun(softmax_output):
         return K.argmax(softmax_output, axis=2)
@@ -262,7 +262,7 @@ def vae_model(config_data, vocab, step):
     kld_loss = Lambda(vae_kld_loss, output_shape=(1,), name='kld_loss')([x_mean, x_los_sigma])
     aux_loss = Lambda(vae_aux_loss, output_shape=(1,), name='auxiliary_loss')([output_idx, softmax_auxiliary])
 
-    output_gen_layer = LSTMStep(lstm, final_softmax_layer, sample_out_size, nclasses)(softmax_aux_mean)
+    output_gen_layer = LSTMStep(lstm, final_softmax_layer, sample_out_size, nclasses)(softmax_auxiliary)
 
     train_model = Model(inputs=inputs, outputs=[main_loss, kld_loss, aux_loss])
     test_model = Model(inputs=inputs, outputs=[output_gen_layer])
