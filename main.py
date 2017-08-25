@@ -167,10 +167,6 @@ def main(args):
         train_input, train_output = load_data(join(tweets_path, 'en_train.tsv'),   config_data, vocab, noutputs)
         logging.info('Load Validation Data')
         valid_input, valid_output = load_data(join(tweets_path, 'en_valid15.tsv'), config_data, vocab, noutputs)
-        logging.info('Load Validation Data')
-        valid_input2, valid_output2 = load_data(join(tweets_path, 'en_test16.tsv'),  config_data, vocab, noutputs)
-        logging.info('Load Test Data')
-        test_input, test_output = load_data(join(tweets_path, 'en_test17.tsv'),  config_data, vocab, noutputs)
 
         step = K.variable(1.)
 
@@ -212,7 +208,7 @@ def main(args):
 
             terminate_on_nan = TerminateOnNaN()
             model_checkpoint = ModelCheckpoint('models/vae_model/weights.{epoch:02d}.hdf5', period=10, save_weights_only=True)
-            reduce_callback = ReduceLROnPlateau(monitor='val_loss', factor=0.995, patience=100, min_lr=0.001, cooldown=50)
+            reduce_callback = ReduceLROnPlateau(monitor='val_loss', factor=0.995, patience=10, min_lr=0.001, cooldown=50)
 
             #optimizer = Nadam(lr=0.002, beta_1=0.9, beta_2=0.999, epsilon=1e-8, schedule_decay=0.001, clipnorm=10)
             optimizer = Adadelta(lr=1.0, epsilon=1e-8, rho=0.95, decay=0.0001, clipnorm=10)

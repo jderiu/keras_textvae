@@ -22,7 +22,7 @@ def generate_data_stream(fname, config_data, vocabulary, batch_size, noutputs=2,
     #vocabulary = {k: v[0] for k, v in vocabulary.items()}
     current_batch = []
     while True:
-        if fname.endswith('.tsv'):
+        if fname.endswith('.tsv') or fname.endswith('.txt'):
             ifile = open(fname, mode='rt', encoding='utf-8')
         elif fname.endswith('.gz') or fname.endswith('.gzip'):
             ifile = gzip.open(fname, mode='rt', encoding='utf-8')

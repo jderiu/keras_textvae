@@ -5,12 +5,12 @@ import logging
 import keras.backend as K
 
 
-class NewCallback(Callback):
+class StepCallback(Callback):
     def __init__(self, alpha, steps_per_epoch):
         self.alpha = alpha
         self.steps_per_epoch = steps_per_epoch
         self.current_epoch = 0
-        super(NewCallback, self).__init__()
+        super(StepCallback, self).__init__()
 
     def on_batch_end(self, batch, logs=None):
         value = self.steps_per_epoch*self.current_epoch + batch
@@ -21,28 +21,31 @@ class NewCallback(Callback):
 
 
 class OutputCallback(Callback):
-    def __init__(self, test_model, validation_input, frequency, vocabulary, delimiter):
+    def __init__(self, test_model, validation_input, frequency, vocabulary, delimiter, fname='logging/test_output'):
         self.validation_input = validation_input
         self.vocabulary = vocabulary
         self.test_model = test_model
         self.frequency = frequency
         self.delimiter = delimiter
+        self.fname = fname
         super(OutputCallback, self).__init__()
 
     def on_epoch_end(self, epoch, logs={}):
         if epoch % self.frequency == 0:
-            output_text(self.test_model, self.validation_input, self.vocabulary, str(epoch), delimiter=self.delimiter, fname='logging/vae_gan/test_output')
+            output_text(self.test_model, self.validation_input, self.vocabulary, str(epoch), delimiter=self.delimiter, fname=self.fname)
         self.ep_end_weights = {}
 
-        enc_loss = logs.get('vae_train_loss', '-')
-        dec_loss = logs.get('vae_gan_loss', '-')
-        dis_loss = logs.get('dis_loss', '-')
-        val_enc_loss = logs.get('val_vae_train_loss', '-')
-        val_dec_loss = logs.get('val_vae_gan_loss', '-')
-        val_dis_loss = logs.get('val_dis_loss', '-')
+        loss = logs.get('loss', '-')
+        enc_loss = logs.get('main_loss_loss', '-')
+        dec_loss = logs.get('kld_loss_loss', '-')
+        dis_loss = logs.get('auxiliary_loss_loss', '-')
+        val_loss = logs.get('val_loss', '-')
+        val_enc_loss = logs.get('val_main_loss_loss', '-')
+        val_dec_loss = logs.get('val_kld_loss_loss', '-')
+        val_dis_loss = logs.get('val_auxiliary_loss_loss', '-')
 
-        logging.info('TRAINING: Enc Loss: {}\t Dec Loss: {}\tDis Loss: {}'.format(enc_loss, dec_loss, dis_loss))
-        logging.info('VALIDATION: Enc Loss: {}\t Dec Loss: {}\tDis Loss: {}'.format(val_enc_loss, val_dec_loss, val_dis_loss))
+        logging.info('TRAINING: Loss: {}\t Enc Loss: {}\t Dec Loss: {}\tDis Loss: {}'.format(loss, enc_loss, dec_loss, dis_loss))
+        logging.info('VALIDATION: Loss: {}\t Enc Loss: {}\t Dec Loss: {}\tDis Loss: {}'.format(val_loss, val_enc_loss, val_dec_loss, val_dis_loss))
         #reset datastructures
         self.ep_begin_weights = {}
         self.ep_end_weights = {}
@@ -63,9 +66,6 @@ class TerminateOnNaN(Callback):
                 print('Batch %d: Invalid loss, terminating training' % (batch))
                 self.model.stop_training = True
                 self.terminated_on_nan = True
-
-
-
 
 
 def pretrain_discriminator(model, data, vocab):
