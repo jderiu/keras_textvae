@@ -72,8 +72,8 @@ def get_encoder(inputs, name_one_hot_embeddings, near_one_hot_embeddings, nfilte
     sampling = sampling_object([hidden_mean, hidden_log_sigma])
 
     encoder = Model(inputs=inputs[:-1], outputs=[sampling, hidden_mean, hidden_log_sigma])
-
     encoder.summary()
+
     return encoder, [hidden_mean, hidden_log_sigma]
 
 
@@ -269,3 +269,6 @@ def vae_model(config_data, vocab, step):
     test_model = Model(inputs=inputs, outputs=[argmax])
 
     return train_model, test_model
+
+
+

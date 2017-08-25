@@ -24,7 +24,6 @@ from data_loaders.data_loader_nlg import load_text_gen_data
 from custom_callbacks import StepCallback, OutputCallback, TerminateOnNaN
 import time
 
-
 def main(args):
 
     try:
@@ -50,6 +49,7 @@ def main(args):
 
     logging.basicConfig(format='%(asctime)s : %(levelname)s : %(message)s', level=logging.INFO,
                         filename='{}/evolution.log'.format(log_path), filemode=filemode)
+
 
     with open(config_fname, 'r') as json_data:
         config_data = json.load(json_data)
