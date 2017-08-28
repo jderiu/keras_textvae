@@ -1,8 +1,9 @@
 import keras.backend as K
 import numpy as np
 from keras.layers import Lambda, Conv1D, Conv2DTranspose, Embedding, Input, BatchNormalization, Activation, Flatten, \
-    Dense, Reshape, concatenate, LSTM, ZeroPadding1D, Layer, PReLU
+    Dense, Reshape, concatenate, ZeroPadding1D, Layer, PReLU
 
+from custom_layers.sem_recurrent import SC_LSTM
 from keras.metrics import binary_crossentropy, categorical_crossentropy
 from keras.models import Model
 from keras.regularizers import l2
@@ -71,6 +72,7 @@ def get_encoder(inputs, name_one_hot_embeddings, near_one_hot_embeddings, nfilte
     sampling = sampling_object([hidden_mean, hidden_log_sigma])
 
     encoder = Model(inputs=inputs[:-1], outputs=[sampling, hidden_mean, hidden_log_sigma])
+    encoder.summary()
 
     encoder.summary()
     return encoder, [hidden_mean, hidden_log_sigma]
@@ -208,10 +210,11 @@ def vae_model(config_data, vocab, step):
     padding = ZeroPadding1D(padding=(1, 0))(output_one_hot_embeddings)
     previous_char_slice = Lambda(remove_last_column, output_shape=(sample_out_size, nclasses))(padding)
 
-    combined_input = concatenate(inputs=[softmax_auxiliary, previous_char_slice], axis=2)
+    #combined_input = concatenate(inputs=[softmax_auxiliary, previous_char_slice], axis=2)
     #MUST BE IMPLEMENTATION 1 or 2
-    lstm = LSTM(
+    lstm = SC_LSTM(
         lstm_size,
+        nclasses,
         return_sequences=True,
         implementation=2,
         kernel_regularizer=l2_regularizer,
@@ -219,16 +222,10 @@ def vae_model(config_data, vocab, step):
         recurrent_regularizer=l2_regularizer,
         activity_regularizer=l2_regularizer
     )
-    recurrent_component = lstm(combined_input)
-    final_softmax_layer = Dense(
-        nclasses,
-        activation='softmax',
-        name='final_softmax_layer',
-        kernel_regularizer=l2_regularizer,
-        bias_regularizer=l2_regularizer,
-        activity_regularizer=l2_regularizer)
+    recurrent_component = lstm([softmax_auxiliary, previous_char_slice])
 
-    softmax_final = final_softmax_layer(recurrent_component)
+    lstm.inference_phase()
+    output_gen_layer = lstm([softmax_auxiliary, softmax_auxiliary])
 
     def vae_cross_ent_loss(args):
         x_truth, x_decoded_final = args
@@ -258,109 +255,21 @@ def vae_model(config_data, vocab, step):
     def identity_loss(y_true, y_pred):
         return y_pred
 
-    main_loss = Lambda(vae_cross_ent_loss, output_shape=(1,), name='main_loss')([output_idx, softmax_final])
+    def argmax_fun(softmax_output):
+        return K.argmax(softmax_output, axis=2)
+
+    argmax = Lambda(argmax_fun, output_shape=(sample_out_size,))(output_gen_layer)
+
+    main_loss = Lambda(vae_cross_ent_loss, output_shape=(1,), name='main_loss')([output_idx, recurrent_component])
     kld_loss = Lambda(vae_kld_loss, output_shape=(1,), name='kld_loss')([x_mean, x_los_sigma])
     aux_loss = Lambda(vae_aux_loss, output_shape=(1,), name='auxiliary_loss')([output_idx, softmax_auxiliary])
 
-    output_gen_layer = LSTMStep(lstm, final_softmax_layer, sample_out_size, nclasses)(softmax_auxiliary)
+    #output_gen_layer = LSTMStep(lstm, final_softmax_layer, sample_out_size, nclasses)(softmax_auxiliary)
 
     train_model = Model(inputs=inputs, outputs=[main_loss, kld_loss, aux_loss])
-    test_model = Model(inputs=inputs, outputs=[output_gen_layer])
+    test_model = Model(inputs=inputs, outputs=[argmax])
 
     return train_model, test_model
 
 
-class LSTMStep(Layer):
 
-    def __init__(self, lstm, softmax_layer, input_length, nclasses, **kwargs):
-        assert isinstance(lstm, LSTM)
-        assert isinstance(softmax_layer, Dense)
-        self.lstm = lstm
-        self.c = None
-        self.h = None
-        self.input_length = input_length
-        self.softmax_layer = softmax_layer
-        self.nclasses = nclasses
-        super(LSTMStep, self).__init__(**kwargs)
-
-    def build(self, input_shape):
-        super(LSTMStep, self).build(input_shape)
-
-    def reset_state(self):
-        self.c = None
-        self.h = None
-
-    def compute_output_shape(self, input_shape):
-        return input_shape[0], input_shape[1]
-
-    def get_initial_states(self, inputs):
-        # build an all-zero tensor of shape (samples, output_dim)
-        initial_state = K.zeros_like(inputs)  # (samples, timesteps, input_dim)
-        initial_state = K.sum(initial_state, axis=(1, 2))  # (samples,)
-        initial_state = K.expand_dims(initial_state)  # (samples, 1)
-        initial_state = K.tile(initial_state, [1, self.lstm.units])  # (samples, output_dim)
-        initial_states = [initial_state for _ in range(len(self.lstm.states))]
-        return initial_states
-
-    def call(self, x, **kwargs):
-
-        ndim = x.ndim
-        axes = [1, 0] + list(range(2, ndim))
-        #(sample_size, batch_size, lstm_size) since we iterate over the samples
-        x_shuffled = x.dimshuffle(axes)
-
-        def _step(x_i, states):
-            current_word_vec = states[0]
-            ins = K.concatenate(tensors=[x_i, current_word_vec], axis=1)
-
-            output, new_states = self.lstm.step(ins, states[1:])
-
-            outsoftmax = self.softmax_layer.call(output)
-            # argmax that returns the predicted char
-            word_idx = T.argmax(outsoftmax, axis=1)
-            current_word_vec = K.one_hot(word_idx, self.nclasses)
-
-            return [word_idx] + [current_word_vec] + new_states
-
-        initial_states = self.get_initial_states(x)
-        # if len(initial_states) > 0:
-        #     initial_states[0] = T.unbroadcast(initial_states[0], 1)
-
-        constants = self.lstm.get_constants(x)
-        start_word = K.ones_like(x_shuffled[0], name='_start_word', dtype='float32')*1e-5
-
-        output_info = [
-            None,
-            dict(initial=start_word, taps=[-1]),
-            dict(initial=initial_states[0], taps=[-1]),
-            dict(initial=initial_states[1], taps=[-1]),
-        ]
-
-        indices = list(range(self.input_length))
-
-        successive_words = []
-        states = initial_states
-        for i in indices:
-            output = _step(x_shuffled[i], [start_word] + states + constants)
-            start_word = output[1]
-            states = output[2:]
-            successive_words.append(output[0])
-
-        outputs = T.stack(*successive_words).dimshuffle([1, 0])
-
-        # results, _ = theano.scan(
-        #     _step,
-        #     sequences=x,
-        #     outputs_info=output_info,
-        #     non_sequences=constants,
-        #     go_backwards=self.lstm.go_backwards)
-
-        # deal with Theano API inconsistency
-        # if isinstance(results, list):
-        #     outputs = results[0]
-        #     states = results[1:]
-        # else:
-        #     outputs = results
-        #     states = []
-
-        return outputs

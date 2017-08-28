@@ -51,6 +51,7 @@ def main(args):
     logging.basicConfig(format='%(asctime)s : %(levelname)s : %(message)s', level=logging.INFO,
                         filename='{}/evolution.log'.format(log_path), filemode=filemode)
 
+
     with open(config_fname, 'r') as json_data:
         config_data = json.load(json_data)
 
