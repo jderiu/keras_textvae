@@ -82,6 +82,7 @@ def get_encoder(inputs, name_one_hot_embeddings, near_one_hot_embeddings, nfilte
     return encoder, [hidden_mean, hidden_log_sigma], full_concat
 
 
+
 def get_decoder(decoder_input, intermediate_dim, nfilter,sample_out_size, out_size, nclasses):
     decoder_input_layer = Dense(
         intermediate_dim,
