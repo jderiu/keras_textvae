@@ -87,7 +87,7 @@ def main(args):
         reduce_callback = ReduceLROnPlateau(monitor='val_loss', factor=0.995, patience=100, min_lr=0.001, cooldown=50)
 
         #optimizer = Nadam(lr=0.002, beta_1=0.9, beta_2=0.999, epsilon=1e-8, schedule_decay=0.001, clipnorm=10)
-        optimizer = Adadelta(lr=1.0, epsilon=1e-8, rho=0.95, decay=0.0001, clipnorm=10)
+        optimizer = Adadelta(lr=1, epsilon=1e-8, rho=0.95, decay=0.0001, clipnorm=10)
         cnn_model.compile(optimizer=optimizer, loss=lambda y_true, y_pred: y_pred)
 
         cnn_model.fit(

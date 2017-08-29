@@ -1,7 +1,7 @@
 import keras.backend as K
 import numpy as np
 from keras.layers import Lambda, Conv1D, Conv2DTranspose, Embedding, Input, BatchNormalization, Activation, Flatten, \
-    Dense, Reshape, concatenate, ZeroPadding1D, Layer, PReLU
+    Dense, Reshape, concatenate, ZeroPadding1D, GlobalAveragePooling1D, PReLU
 
 from custom_layers.sem_recurrent import SC_LSTM
 from keras.metrics import binary_crossentropy, categorical_crossentropy
@@ -37,7 +37,7 @@ def get_conv_stack(input_one_hot_embeddings, nfilter):
     )(conv2)
     relu2 = PReLU()(bn2)
     conv3 = Conv1D(
-        filters= nfilter,
+        filters=nfilter,
         kernel_size=3,
         strides=2,
         padding='same',
@@ -47,9 +47,11 @@ def get_conv_stack(input_one_hot_embeddings, nfilter):
     )(conv3)
     relu3 = PReLU()(bn3)
     # oshape = (batch_size, sample_size/4*256)
-    flatten = Flatten()(relu3)
+    pooling = GlobalAveragePooling1D()(relu3)
 
-    return flatten
+    #flatten = Flatten()(relu3)
+
+    return pooling
 
 
 def get_encoder(inputs, name_one_hot_embeddings, near_one_hot_embeddings, nfilter, z_size, intermediate_dim):
@@ -57,6 +59,9 @@ def get_encoder(inputs, name_one_hot_embeddings, near_one_hot_embeddings, nfilte
 
     name_conv = get_conv_stack(name_one_hot_embeddings, nfilter)
     near_conv = get_conv_stack(near_one_hot_embeddings, nfilter)
+
+    #name_hidden = Dense(units=16, activation='relu')(name_conv)
+    #near_hidden = Dense(units=16, activation='relu')(near_conv)
 
     full_concat = concatenate(inputs=[name_conv, near_conv, eat_type_idx, price_range_idx, customer_feedback_idx, food_idx, area_idx, family_idx])
 
@@ -74,7 +79,7 @@ def get_encoder(inputs, name_one_hot_embeddings, near_one_hot_embeddings, nfilte
     encoder = Model(inputs=inputs[:-1], outputs=[sampling, hidden_mean, hidden_log_sigma])
     encoder.summary()
 
-    return encoder, [hidden_mean, hidden_log_sigma]
+    return encoder, [hidden_mean, hidden_log_sigma], full_concat
 
 
 def get_decoder(decoder_input, intermediate_dim, nfilter,sample_out_size, out_size, nclasses):
@@ -194,7 +199,7 @@ def vae_model(config_data, vocab, step):
     output_one_hot_embeddings = one_hot_out_embeddings(output_idx)
 
     decoder_input = Input(shape=(z_size,), name='decoder_input')
-    encoder, sampling_input = get_encoder(inputs, name_one_hot_embeddings, near_one_hot_embeddings, nfilter, z_size, intermediate_dim)
+    encoder, sampling_input, dialogue_act = get_encoder(inputs, name_one_hot_embeddings, near_one_hot_embeddings, nfilter, z_size, intermediate_dim)
     decoder = get_decoder(decoder_input, intermediate_dim, nfilter, sample_out_size, out_size, nclasses)
 
     x_sampled, x_mean, x_los_sigma = encoder(inputs[:-1])
@@ -214,6 +219,8 @@ def vae_model(config_data, vocab, step):
     lstm = SC_LSTM(
         lstm_size,
         nclasses,
+        use_bias=True,
+        semantic_condition=True,
         return_sequences=True,
         implementation=2,
         kernel_regularizer=l2_regularizer,
@@ -221,10 +228,10 @@ def vae_model(config_data, vocab, step):
         recurrent_regularizer=l2_regularizer,
         activity_regularizer=l2_regularizer
     )
-    recurrent_component = lstm([softmax_auxiliary, previous_char_slice])
+    recurrent_component = lstm([softmax_auxiliary, previous_char_slice, dialogue_act])
 
     lstm.inference_phase()
-    output_gen_layer = lstm([softmax_auxiliary, softmax_auxiliary])
+    output_gen_layer = lstm([softmax_auxiliary, softmax_auxiliary, dialogue_act])
 
     def vae_cross_ent_loss(args):
         x_truth, x_decoded_final = args
