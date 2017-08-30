@@ -361,7 +361,7 @@ class SC_LSTM(Recurrent):
                 if self.use_bias:
                     r = K.bias_add(r, self.bias_r)
                 d = r*d_tm1
-                c = f * c_tm1 + i * self.activation(z2)+ self.activation(K.dot(d, self.kernel_d))
+                c = f * c_tm1 + i * self.activation(z2) + self.activation(K.dot(d, self.kernel_d))
             else:
                 c = f * c_tm1 + i * self.activation(z2)
 

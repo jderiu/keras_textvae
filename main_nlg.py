@@ -70,6 +70,8 @@ def main(args):
         train_input, train_output = load_text_gen_data(join(tweets_path, 'trainset.csv'),   config_data, vocab, noutputs)
         logging.info('Load Validation Data')
         valid_input, valid_output = load_text_gen_data(join(tweets_path, 'devset.csv'), config_data, vocab, noutputs)
+        logging.info('Load Output Validation Data')
+        valid_dev_input, valid_dev_output = load_text_gen_data(join(tweets_path, 'devset_reduced.csv'), config_data, vocab, noutputs)
 
         step = K.variable(1.)
 
@@ -98,7 +100,7 @@ def main(args):
             batch_size=config_data['batch_size'],
             validation_data=(valid_input, valid_output),
             callbacks=[StepCallback(step, steps_per_epoch),
-                       OutputCallback(test_model, valid_input, 15, vocab, delimiter, fname='{}/test_output'.format(log_path)),
+                       OutputCallback(test_model, valid_dev_input, 5, vocab, delimiter, fname='{}/test_output'.format(log_path)),
                        terminate_on_nan,
                        model_checkpoint,
                        reduce_callback],

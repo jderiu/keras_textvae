@@ -11,7 +11,7 @@ def output_text(model, text_idx, vocab, step='final', delimiter='', fname='loggi
         list_txt_idx = [int(x) for x in text.tolist()]
         txt_list = [inverse_vocab.get(int(x), '') for x in list_txt_idx]
         oline = delimiter.join(txt_list)
-        ofile.write('{}: {}'.format(i, oline) + '\n')
+        ofile.write('{}'.format(oline) + '\n')
     ofile.close()
 
 
