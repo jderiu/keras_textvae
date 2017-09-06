@@ -19,7 +19,7 @@ import keras.backend as K
 from keras.callbacks import Callback, ModelCheckpoint, ReduceLROnPlateau
 from keras.optimizers import Adam, Nadam, Adadelta
 from output_text import output_text
-from vae_architectures.vae_deconv_recurrent import vae_model
+from vae_architectures.vae_deconv_recurrent_nlg import vae_model
 from data_loaders.data_loader_nlg import load_text_gen_data
 from custom_callbacks import StepCallback, OutputCallback, TerminateOnNaN
 import time

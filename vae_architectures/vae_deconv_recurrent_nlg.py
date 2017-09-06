@@ -1,7 +1,7 @@
 import keras.backend as K
 import numpy as np
 from keras.layers import Lambda, Conv1D, Conv2DTranspose, Embedding, Input, BatchNormalization, Activation, Flatten, \
-    Dense, Reshape, concatenate, ZeroPadding1D, GlobalAveragePooling1D, PReLU
+    Dense, Reshape, concatenate, ZeroPadding1D, GlobalAveragePooling1D, PReLU, LSTM
 
 from custom_layers.sem_recurrent import SC_LSTM
 from keras.metrics import binary_crossentropy, categorical_crossentropy
@@ -224,10 +224,9 @@ def vae_model(config_data, vocab, step):
         semantic_condition=True,
         return_sequences=True,
         implementation=2,
-        kernel_regularizer=l2_regularizer,
-        bias_regularizer=l2_regularizer,
-        recurrent_regularizer=l2_regularizer,
-        activity_regularizer=l2_regularizer
+        dropout=0.2,
+        recurrent_dropout=0.2,
+        sc_dropout=0.2
     )
     recurrent_component = lstm([softmax_auxiliary, previous_char_slice, dialogue_act])
 

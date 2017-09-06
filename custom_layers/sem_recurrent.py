@@ -1,5 +1,4 @@
-from keras.layers import Recurrent
-import numpy as np
+from keras.layers import Recurrent, concatenate
 
 from keras import backend as K
 from keras import activations
@@ -7,7 +6,7 @@ from keras import initializers
 from keras import regularizers
 from keras import constraints
 from keras.engine import InputSpec
-from keras.legacy import interfaces
+
 
 class SC_LSTM(Recurrent):
         def __init__(self, units, out_units,
@@ -32,6 +31,7 @@ class SC_LSTM(Recurrent):
                      bias_constraint=None,
                      dropout=0.,
                      recurrent_dropout=0.,
+                     sc_dropout=0.,
                      **kwargs):
             super(SC_LSTM, self).__init__(**kwargs)
             self.units = units
@@ -69,6 +69,7 @@ class SC_LSTM(Recurrent):
 
             self.dropout = min(1., max(0., dropout))
             self.recurrent_dropout = min(1., max(0., recurrent_dropout))
+            self.sc_dropout = min(1., max(0., sc_dropout))
             self.state_spec = [InputSpec(shape=(None, self.units)),
                                InputSpec(shape=(None, self.units))]
 
@@ -240,6 +241,23 @@ class SC_LSTM(Recurrent):
                 constants.append([K.cast_to_floatx(1.) for _ in range(5)])
             return constants
 
+        def get_sc_constants(self, inputs, training=None):
+            constants = []
+            if 0 < self.sc_dropout < 1:
+                ones = K.ones_like(K.reshape(inputs[:, 0], (-1, 1)))
+                ones = K.tile(ones, (1, self.dialogue_act_dim))
+
+                def dropped_inputs():
+                    return K.dropout(ones, self.sc_dropout)
+
+                rec_dp_mask = [K.in_train_phase(dropped_inputs,
+                                                ones,
+                                                training=training) for _ in range(5)]
+                constants.append(rec_dp_mask)
+            else:
+                constants.append([K.cast_to_floatx(1.) for _ in range(5)])
+            return constants
+
         def get_initial_state(self, inputs):
             # build an all-zero tensor of shape (samples, output_dim)
             initial_state = K.zeros_like(inputs)  # (samples, timesteps, input_dim)
@@ -269,18 +287,20 @@ class SC_LSTM(Recurrent):
             input_length = K.int_shape(inputs[0])[1]
             input_list = inputs
             if not self.train_phase and self.condition_on_ptm1:
-                aux_inputs = K.concatenate(input_list[:2])
+                aux_inputs = concatenate(inputs=input_list[:2])
                 initial_state = self.get_initial_state(aux_inputs)
                 constants = self.get_constants(aux_inputs, training=None)
                 inputs = input_list[0]
             else:
-                inputs = K.concatenate(input_list[:2])
+                inputs = concatenate(inputs=input_list[:2])
                 initial_state = self.get_initial_state(inputs)
-                constants = self.get_constants(input_list, training=None)
+                constants = self.get_constants(inputs, training=None)
 
             if self.semantic_condition:
                 dialogue_act = input_list[-1]
                 initial_state = initial_state + [dialogue_act]
+                sc_constants = self.get_sc_constants(dialogue_act, training=None)
+                constants = constants + sc_constants
 
             p0 = self.get_initial_p(inputs)
 
@@ -305,7 +325,7 @@ class SC_LSTM(Recurrent):
                                                  input_length=input_length)
 
             # Properly set learning phase
-            if 0.0 < self.dropout + self.recurrent_dropout:
+            if 0.0 < self.dropout + self.recurrent_dropout + self.sc_dropout:
                 last_output._uses_learning_phase = True
                 outputs._uses_learning_phase = True
 
@@ -333,6 +353,7 @@ class SC_LSTM(Recurrent):
                     inputs = K.concatenate([inputs, p_tm1], axis=1)
                 dp_mask = states[4]
                 rec_dp_mask = states[5]
+                sc_dp_mask = states[6]
             else:
                 h_tm1 = states[0]
                 c_tm1 = states[1]
@@ -357,11 +378,11 @@ class SC_LSTM(Recurrent):
 
             if self.semantic_condition:
                 d_tm1 = states[2]
-                r = self.recurrent_activation(K.dot(inputs, self.kernel_r) + K.dot(h_tm1, self.recurrent_kernel_r))
+                r = self.recurrent_activation(K.dot(inputs * dp_mask[0], self.kernel_r) + K.dot(h_tm1 * rec_dp_mask[0], self.recurrent_kernel_r))
                 if self.use_bias:
                     r = K.bias_add(r, self.bias_r)
                 d = r*d_tm1
-                c = f * c_tm1 + i * self.activation(z2) + self.activation(K.dot(d, self.kernel_d))
+                c = f * c_tm1 + i * self.activation(z2) + self.activation(K.dot(d * sc_dp_mask[0], self.kernel_d))
             else:
                 c = f * c_tm1 + i * self.activation(z2)
 
@@ -376,7 +397,7 @@ class SC_LSTM(Recurrent):
                 lables = K.argmax(p, axis=1)
                 p = K.one_hot(lables, self.out_units)
 
-            if 0.0 < self.dropout + self.recurrent_dropout:
+            if 0.0 < self.dropout + self.recurrent_dropout + self.sc_dropout:
                 h._uses_learning_phase = True
 
             if self.semantic_condition:
@@ -401,6 +422,7 @@ class SC_LSTM(Recurrent):
                       'recurrent_constraint': constraints.serialize(self.recurrent_constraint),
                       'bias_constraint': constraints.serialize(self.bias_constraint),
                       'dropout': self.dropout,
-                      'recurrent_dropout': self.recurrent_dropout}
+                      'recurrent_dropout': self.recurrent_dropout,
+                      'sc_dropout': self.sc_dropout}
             base_config = super(SC_LSTM, self).get_config()
             return dict(list(base_config.items()) + list(config.items()))
