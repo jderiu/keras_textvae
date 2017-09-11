@@ -21,7 +21,7 @@ from keras.optimizers import Adam, Nadam, Adadelta
 from output_text import output_text
 from vae_architectures.vae_deconv_recurrent_nlg import vae_model
 from data_loaders.data_loader_nlg import load_text_gen_data
-from custom_callbacks import StepCallback, OutputCallback, TerminateOnNaN
+from custom_callbacks import StepCallback, LexOutputCallback, TerminateOnNaN
 import time
 
 
@@ -52,6 +52,7 @@ def main(args):
                         filename='{}/evolution.log'.format(log_path), filemode=filemode)
 
 
+
     with open(config_fname, 'r') as json_data:
         config_data = json.load(json_data)
 
@@ -67,11 +68,11 @@ def main(args):
         noutputs = 3
 
         logging.info('Load Training Data')
-        train_input, train_output = load_text_gen_data(join(tweets_path, 'trainset.csv'),   config_data, vocab, noutputs)
+        train_input, train_output, train_lex = load_text_gen_data(join(tweets_path, 'trainset.csv'),   config_data, vocab, noutputs)
         logging.info('Load Validation Data')
-        valid_input, valid_output = load_text_gen_data(join(tweets_path, 'devset.csv'), config_data, vocab, noutputs)
+        valid_input, valid_output, valid_lex = load_text_gen_data(join(tweets_path, 'devset.csv'), config_data, vocab, noutputs)
         logging.info('Load Output Validation Data')
-        valid_dev_input, valid_dev_output = load_text_gen_data(join(tweets_path, 'devset_reduced.csv'), config_data, vocab, noutputs)
+        valid_dev_input, valid_dev_output, valid_dev_lex = load_text_gen_data(join(tweets_path, 'devset_reduced.csv'), config_data, vocab, noutputs)
 
         step = K.variable(1.)
 
@@ -100,7 +101,7 @@ def main(args):
             batch_size=config_data['batch_size'],
             validation_data=(valid_input, valid_output),
             callbacks=[StepCallback(step, steps_per_epoch),
-                       OutputCallback(test_model, valid_dev_input, 5, vocab, delimiter, fname='{}/test_output'.format(log_path)),
+                       LexOutputCallback(test_model, valid_dev_input, valid_dev_lex, 5, vocab, delimiter, fname='{}/test_output'.format(log_path)),
                        terminate_on_nan,
                        model_checkpoint,
                        reduce_callback],

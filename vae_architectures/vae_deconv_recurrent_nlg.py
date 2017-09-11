@@ -163,13 +163,13 @@ def vae_model(config_data, vocab, step):
     # Define Encoder
     # == == == == == =
     name_idx = Input(batch_shape=(None, sample_in_size), dtype='int32', name='name_idx')
-    eat_type_idx = Input(batch_shape=(None, 3), dtype='float32', name='eat_type_idx')
-    price_range_idx = Input(batch_shape=(None, 6), dtype='float32', name='price_range_idx')
-    customer_feedback_idx = Input(batch_shape=(None, 6), dtype='float32', name='customer_feedback_idx')
+    eat_type_idx = Input(batch_shape=(None, 4), dtype='float32', name='eat_type_idx')
+    price_range_idx = Input(batch_shape=(None, 7), dtype='float32', name='price_range_idx')
+    customer_feedback_idx = Input(batch_shape=(None, 7), dtype='float32', name='customer_feedback_idx')
     near_idx = Input(batch_shape=(None, sample_in_size), dtype='float32', name='near_idx')
-    food_idx = Input(batch_shape=(None, 7), dtype='float32', name='food_idx')
-    area_idx = Input(batch_shape=(None, 2), dtype='float32', name='area_idx')
-    family_idx = Input(batch_shape=(None, 2), dtype='float32', name='family_idx')
+    food_idx = Input(batch_shape=(None, 8), dtype='float32', name='food_idx')
+    area_idx = Input(batch_shape=(None, 3), dtype='float32', name='area_idx')
+    family_idx = Input(batch_shape=(None, 3), dtype='float32', name='family_idx')
     output_idx = Input(batch_shape=(None, sample_out_size), dtype='int32', name='character_output')
 
     inputs = [name_idx, eat_type_idx, price_range_idx, customer_feedback_idx, near_idx, food_idx, area_idx, family_idx, output_idx]
@@ -200,7 +200,7 @@ def vae_model(config_data, vocab, step):
     output_one_hot_embeddings = one_hot_out_embeddings(output_idx)
 
     decoder_input = Input(shape=(z_size,), name='decoder_input')
-    encoder, sampling_input, dialogue_act = get_encoder(inputs, name_one_hot_embeddings, near_one_hot_embeddings, nfilter, z_size, intermediate_dim)
+    encoder, _ , dialogue_act = get_encoder(inputs, name_one_hot_embeddings, near_one_hot_embeddings, nfilter, z_size, intermediate_dim)
     decoder = get_decoder(decoder_input, intermediate_dim, nfilter, sample_out_size, out_size, nclasses)
 
     x_sampled, x_mean, x_los_sigma = encoder(inputs[:-1])
@@ -220,6 +220,8 @@ def vae_model(config_data, vocab, step):
     lstm = SC_LSTM(
         lstm_size,
         nclasses,
+        return_da=False,
+        return_state=False,
         use_bias=True,
         semantic_condition=True,
         return_sequences=True,
@@ -258,6 +260,12 @@ def vae_model(config_data, vocab, step):
         sum_over_sentences = K.sum(cross_ent, axis=1)
         return alpha*sum_over_sentences
 
+    def da_loss_fun(args):
+        da = args[0]
+        sq_da_t = K.square(da)
+        sum_sq_da_T = K.sum(sq_da_t, axis=1)
+        return sum_sq_da_T
+
     def identity_loss(y_true, y_pred):
         return y_pred
 
@@ -269,6 +277,7 @@ def vae_model(config_data, vocab, step):
     main_loss = Lambda(vae_cross_ent_loss, output_shape=(1,), name='main_loss')([output_idx, recurrent_component])
     kld_loss = Lambda(vae_kld_loss, output_shape=(1,), name='kld_loss')([x_mean, x_los_sigma])
     aux_loss = Lambda(vae_aux_loss, output_shape=(1,), name='auxiliary_loss')([output_idx, softmax_auxiliary])
+    #da_loss = Lambda(da_loss_fun, output_shape=(1,), name='dialogue_act_loss')([state])
 
     #output_gen_layer = LSTMStep(lstm, final_softmax_layer, sample_out_size, nclasses)(softmax_auxiliary)
 

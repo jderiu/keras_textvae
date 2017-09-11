@@ -1,4 +1,4 @@
-from output_text import output_text
+from output_text import output_text, output_lex_text
 from keras.callbacks import Callback
 import numpy as np
 import logging
@@ -50,6 +50,38 @@ class OutputCallback(Callback):
         self.ep_begin_weights = {}
         self.ep_end_weights = {}
 
+
+class LexOutputCallback(Callback):
+    def __init__(self, test_model, validation_input, validation_lex, frequency, vocabulary, delimiter, fname='logging/test_output'):
+        self.validation_input = validation_input
+        self.vocabulary = vocabulary
+        self.test_model = test_model
+        self.frequency = frequency
+        self.delimiter = delimiter
+        self.fname = fname
+        self.validation_lex = validation_lex
+
+        super(LexOutputCallback, self).__init__()
+
+    def on_epoch_end(self, epoch, logs={}):
+        if epoch % self.frequency == 0:
+            output_lex_text(self.test_model, self.validation_input, self.validation_lex, self.vocabulary, str(epoch), delimiter=self.delimiter, fname=self.fname)
+        self.ep_end_weights = {}
+
+        loss = logs.get('loss', '-')
+        enc_loss = logs.get('main_loss_loss', '-')
+        dec_loss = logs.get('kld_loss_loss', '-')
+        dis_loss = logs.get('auxiliary_loss_loss', '-')
+        val_loss = logs.get('val_loss', '-')
+        val_enc_loss = logs.get('val_main_loss_loss', '-')
+        val_dec_loss = logs.get('val_kld_loss_loss', '-')
+        val_dis_loss = logs.get('val_auxiliary_loss_loss', '-')
+
+        logging.info('TRAINING: Loss: {}\t Main Loss: {}\t KLD Loss: {}\tAux Loss: {}'.format(loss, enc_loss, dec_loss, dis_loss))
+        logging.info('VALIDATION: Loss: {}\t Main Loss: {}\t KLD Loss: {}\tAux Loss: {}'.format(val_loss, val_enc_loss, val_dec_loss, val_dis_loss))
+        #reset datastructures
+        self.ep_begin_weights = {}
+        self.ep_end_weights = {}
 
 class TerminateOnNaN(Callback):
     """Callback that terminates training when a NaN loss is encountered."""

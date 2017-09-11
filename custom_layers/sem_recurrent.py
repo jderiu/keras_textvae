@@ -10,6 +10,7 @@ from keras.engine import InputSpec
 
 class SC_LSTM(Recurrent):
         def __init__(self, units, out_units,
+                     return_da = True,
                      condition_on_ptm1 = True,
                      semantic_condition = True,
                      activation='tanh',
@@ -40,6 +41,7 @@ class SC_LSTM(Recurrent):
             self.recurrent_activation = activations.get(recurrent_activation)
             self.use_bias = use_bias
             self.semantic_condition = semantic_condition
+            self.return_da = return_da
 
             #different behaviour while training than from inefrence time
             self.train_phase = True
@@ -205,8 +207,24 @@ class SC_LSTM(Recurrent):
             if self.return_state:
                 state_shape = [(input_shape[0], self.units) for _ in self.states]
                 return [output_shape] + state_shape
+            if self.return_da:
+                da_state_shape = (input_shape[0], self.dialogue_act_dim)
+                return [output_shape, da_state_shape]
             else:
                 return output_shape
+
+        def compute_mask(self, inputs, mask):
+            if isinstance(mask, list):
+                mask = mask[0]
+            output_mask = mask if self.return_sequences else None
+            if self.return_state:
+                state_mask = [None for _ in self.states]
+                return [output_mask] + state_mask
+            elif self.return_da:
+                state_mask = None
+                return [output_mask, state_mask]
+            else:
+                return output_mask
 
         def get_constants(self, inputs, training=None):
             constants = []
@@ -340,6 +358,13 @@ class SC_LSTM(Recurrent):
                 else:
                     states = list(states)
                 return [output] + states
+            elif self.return_da:
+                if not isinstance(states, (list, tuple)):
+                    states = [states]
+                else:
+                    states = list(states)
+                da_state = states
+                return [output, states[2]]
             else:
                 return output
 

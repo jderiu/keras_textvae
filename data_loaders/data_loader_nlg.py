@@ -36,6 +36,7 @@ def load_text_gen_data(fname, config_data, vocabulary, noutputs=3):
 
     processed_fields = defaultdict(lambda: [])
     outputs_raw = []
+
     for row in reader:
         i1 = row['mr']
         i2 = row['ref']
@@ -55,27 +56,46 @@ def load_text_gen_data(fname, config_data, vocabulary, noutputs=3):
             processed_fields[header].append(processed_value)
 
     inputs = []
+
+    name_tok = 'X-name'
+    near_tok = 'X-near'
+
     for header, _ in headers:
         values = processed_fields[header]
         if header in ['name', 'near']:
+            #delex
+            if header == 'name':
+                values = [name_tok for _ in values]
+            elif header == 'near':
+                values = [near_tok for _ in values]
+
             value_idx = convert2indices(values, vocabulary, dummy_word_idx, dummy_word_idx, max_sent_length=max_input_length)
         else:
             value_idx = []
             for value in values:
-                x = np.zeros(field_ops[header])
-                if value:
+                x = np.zeros(field_ops[header] + 1)
+                if value is not None:
                     x[value] = 1
                 value_idx.append(x)
 
             value_idx = np.array(value_idx).astype('float32')
         inputs.append(value_idx)
 
-    target_idx = convert2indices(outputs_raw, vocabulary, dummy_word_idx, dummy_word_idx, max_sent_length=max_output_length)
+    #outputs_raw = [x.replace(name, name_tok).replace(near_name, near_tok) for x, name, near_name in zip(outputs_raw, processed_fields['name'], processed_fields['near'])]
+    output_name_delex = [x.replace(name, name_tok) if name else x for x, name in zip(outputs_raw, processed_fields['name'])]
+    outputs_delex = [x.replace(near_name, near_tok) if near_name else x for x, near_name in zip(output_name_delex, processed_fields['near'])]
+
+    target_idx = convert2indices(outputs_delex, vocabulary, dummy_word_idx, dummy_word_idx, max_sent_length=max_output_length)
     inputs.append(target_idx)
 
     outputs = [np.ones(len(inputs[0]))] * noutputs
 
-    return inputs, outputs
+    lex_dict = {
+        name_tok: processed_fields['name'],
+        near_tok: processed_fields['near'],
+    }
+
+    return inputs, outputs, lex_dict
 
 
 def process_name(text):
@@ -90,14 +110,14 @@ def process_eat_type(text):
         'coffee shop': 0,
         'pub': 1,
         'restaurant': 2,
-    }.get(text, None)
+    }.get(text, 3)
 
 
 def process_area(text):
     return {
         'city centre': 0,
         'riverside': 1
-    }.get(text, None)
+    }.get(text, 2)
 
 
 def process_price_range(text):
@@ -108,7 +128,7 @@ def process_price_range(text):
         'cheap': 3,
         'less than £20': 4,
         'moderate': 5
-    }.get(text, None)
+    }.get(text, 6)
 
 
 def process_customer_rating(text):
@@ -119,7 +139,7 @@ def process_customer_rating(text):
         '3 out of 5': 3,
         'low': 4,
         '1 out of 5': 5
-    }.get(text, None)
+    }.get(text, 6)
 
 
 def process_near(text):
@@ -138,21 +158,21 @@ def process_food(text):
         'Italian': 4,
         'Fast food': 5,
         'Chinese': 6
-    }.get(text, None)
+    }.get(text, 7)
 
 
 def process_family_friendly(text):
     return {
         'yes': 0,
-        'no' : 1
-    }.get(text, None)
+        'no': 1
+    }.get(text, 2)
 
 
 if __name__ == '__main__':
-    config_data = json.load(open('configurations/config_vae.json'))
+    config_data = json.load(open('configurations/config_vae_nlg.json'))
     vocab_char_path = join(config_data['vocab_path'], 'vocabulary.pkl')
 
     vocab_char = cPickle.load(open(vocab_char_path, 'rb'))
-    tweets_fname = join(config_data['tweets_path'], 'trainset.csv')
+    tweets_fname = join(config_data['tweets_path'], 'devset_reduced.csv')
     i, o = load_text_gen_data(tweets_fname, config_data, vocab_char, noutputs=2)
     pass
