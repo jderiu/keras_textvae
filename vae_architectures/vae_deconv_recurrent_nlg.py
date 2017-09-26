@@ -1,16 +1,12 @@
-import keras.backend as K
 import numpy as np
-from keras.layers import Lambda, Conv1D, Conv2DTranspose, Embedding, Input, BatchNormalization, Activation, Flatten, \
-    Dense, Reshape, concatenate, ZeroPadding1D, GlobalAveragePooling1D, PReLU, LSTM
-
-from custom_layers.sem_recurrent import SC_LSTM
-from keras.metrics import binary_crossentropy, categorical_crossentropy
-from keras.models import Model
-from keras.regularizers import l2
 from theano import tensor as T
 
-
-from vae_architectures.sampling_layer import Sampling
+import keras.backend as K
+from custom_layers.sampling_layer import Sampling
+from custom_layers.sem_recurrent import SC_LSTM
+from keras.layers import Lambda, Conv1D, Conv2DTranspose, Embedding, Input, BatchNormalization, Dense, Reshape, \
+    concatenate, ZeroPadding1D, GlobalAveragePooling1D, PReLU
+from keras.models import Model
 
 
 def get_conv_stack(input_one_hot_embeddings, nfilter):
@@ -57,13 +53,13 @@ def get_conv_stack(input_one_hot_embeddings, nfilter):
 def get_encoder(inputs, name_one_hot_embeddings, near_one_hot_embeddings, nfilter, z_size, intermediate_dim):
     name_idx, eat_type_idx, price_range_idx, customer_feedback_idx, near_idx, food_idx, area_idx, family_idx, _ = inputs
 
-    name_conv = get_conv_stack(name_one_hot_embeddings, nfilter)
-    near_conv = get_conv_stack(near_one_hot_embeddings, nfilter)
+    #name_conv = get_conv_stack(name_one_hot_embeddings, nfilter)
+    #near_conv = get_conv_stack(near_one_hot_embeddings, nfilter)
 
     #name_hidden = Dense(units=16, activation='relu')(name_conv)
     #near_hidden = Dense(units=16, activation='relu')(near_conv)
 
-    full_concat = concatenate(inputs=[name_conv, near_conv, eat_type_idx, price_range_idx, customer_feedback_idx, food_idx, area_idx, family_idx])
+    full_concat = concatenate(inputs=[name_idx, near_idx, eat_type_idx, price_range_idx, customer_feedback_idx, food_idx, area_idx, family_idx])
 
     # need to store the size of the representation after the convolutions -> needed for deconv later
     hidden_intermediate_enc = Dense(
@@ -80,7 +76,6 @@ def get_encoder(inputs, name_one_hot_embeddings, near_one_hot_embeddings, nfilte
     encoder.summary()
 
     return encoder, [hidden_mean, hidden_log_sigma], full_concat
-
 
 
 def get_decoder(decoder_input, intermediate_dim, nfilter,sample_out_size, out_size, nclasses):
@@ -162,11 +157,11 @@ def vae_model(config_data, vocab, step):
     # == == == == == =
     # Define Encoder
     # == == == == == =
-    name_idx = Input(batch_shape=(None, sample_in_size), dtype='int32', name='name_idx')
+    name_idx = Input(batch_shape=(None, 2), dtype='float32', name='name_idx')
     eat_type_idx = Input(batch_shape=(None, 4), dtype='float32', name='eat_type_idx')
     price_range_idx = Input(batch_shape=(None, 7), dtype='float32', name='price_range_idx')
     customer_feedback_idx = Input(batch_shape=(None, 7), dtype='float32', name='customer_feedback_idx')
-    near_idx = Input(batch_shape=(None, sample_in_size), dtype='float32', name='near_idx')
+    near_idx = Input(batch_shape=(None, 2), dtype='float32', name='near_idx')
     food_idx = Input(batch_shape=(None, 8), dtype='float32', name='food_idx')
     area_idx = Input(batch_shape=(None, 3), dtype='float32', name='area_idx')
     family_idx = Input(batch_shape=(None, 3), dtype='float32', name='family_idx')

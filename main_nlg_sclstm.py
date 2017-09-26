@@ -19,7 +19,7 @@ import keras.backend as K
 from keras.callbacks import Callback, ModelCheckpoint, ReduceLROnPlateau
 from keras.optimizers import Adam, Nadam, Adadelta
 from output_text import output_text
-from vae_architectures.vae_deconv_recurrent_nlg import vae_model
+from sc_lstm_architecutre.sclstm_architecture import vae_model
 from data_loaders.data_loader_nlg import load_text_gen_data
 from custom_callbacks import StepCallback, LexOutputCallback, TerminateOnNaN
 import time
@@ -51,8 +51,6 @@ def main(args):
     logging.basicConfig(format='%(asctime)s : %(levelname)s : %(message)s', level=logging.INFO,
                         filename='{}/evolution.log'.format(log_path), filemode=filemode)
 
-
-
     with open(config_fname, 'r') as json_data:
         config_data = json.load(json_data)
 
@@ -65,7 +63,7 @@ def main(args):
         #== == == == == == =
 
         delimiter = ''
-        noutputs = 3
+        noutputs = 1
 
         logging.info('Load Training Data')
         train_input, train_output, train_lex = load_text_gen_data(join(tweets_path, 'trainset.csv'),   config_data, vocab, noutputs)

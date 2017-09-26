@@ -10,9 +10,10 @@ from keras.engine import InputSpec
 
 class SC_LSTM(Recurrent):
         def __init__(self, units, out_units,
-                     return_da = True,
-                     condition_on_ptm1 = True,
-                     semantic_condition = True,
+                     return_da=True,
+                     generation_only = False,
+                     condition_on_ptm1=True,
+                     semantic_condition=True,
                      activation='tanh',
                      recurrent_activation='hard_sigmoid',
                      use_bias=True,
@@ -41,14 +42,25 @@ class SC_LSTM(Recurrent):
             self.recurrent_activation = activations.get(recurrent_activation)
             self.use_bias = use_bias
             self.semantic_condition = semantic_condition
+            self.generation_only = generation_only
             self.return_da = return_da
 
             #different behaviour while training than from inefrence time
             self.train_phase = True
             self.condition_on_ptm1 = condition_on_ptm1
 
-            if self.semantic_condition:
+            if self.semantic_condition and self.condition_on_ptm1 and self.generation_only:
+                #takes orig_input while training and dialogue act for conditioning
+                self.input_spec = [InputSpec(ndim=3), InputSpec(ndim=2)]
+            elif not self.generation_only and self.semantic_condition and self.condition_on_ptm1:
+                #takes the aux the orig input -1 and the dialogue act while training, while testing the o-1 is replaced by ptm1
                 self.input_spec = [InputSpec(ndim=3), InputSpec(ndim=3), InputSpec(ndim=2)]
+            elif not self.generation_only and not self.semantic_condition and self.condition_on_ptm1:
+                #takes aux, orig-1 while training and aus, aus while testing
+                self.input_spec = [InputSpec(ndim=3), InputSpec(ndim=3)]
+            elif not self.generation_only and not self.semantic_condition and not self.condition_on_ptm1:
+                #takes aux input for train and testing (vanille lstm)
+                self.input_spec = [InputSpec(ndim=3)]
             else:
                 self.input_spec = [InputSpec(ndim=3), InputSpec(ndim=3)]
 
@@ -77,17 +89,36 @@ class SC_LSTM(Recurrent):
 
         def build(self, input_shape):
             assert isinstance(input_shape, list)
+
+            main_input_shape = input_shape[0]
+            batch_size = main_input_shape[0] if self.stateful else None
+
+            if self.semantic_condition and self.condition_on_ptm1 and self.generation_only:
+                #takes orig_input while training and dialogue act for conditioning
+                assert len(input_shape) == 2
+                self.input_dim = main_input_shape[2]
+            elif not self.generation_only and self.semantic_condition and self.condition_on_ptm1:
+                #takes the aux the orig input -1 and the dialogue act while training, while testing the o-1 is replaced by ptm1
+                assert len(input_shape) == 3
+                self.input_dim = 2*main_input_shape[2]
+            elif not self.generation_only and not self.semantic_condition and self.condition_on_ptm1:
+                #takes aux, orig-1 while training and aus, aus while testing
+                assert len(input_shape) == 2
+                self.input_dim = 2*main_input_shape[2]
+            elif not self.generation_only and not self.semantic_condition and not self.condition_on_ptm1:
+                #takes aux input for train and testing (vanille lstm)
+                assert len(input_shape) == 1
+                self.input_dim = main_input_shape[2]
+            else:
+                assert len(input_shape) == 2
+                self.input_dim = main_input_shape[2]
+
             if self.semantic_condition:
                 diact_shape = input_shape[-1]
                 self.dialogue_act_dim = diact_shape[-1]
 
-            input_shape = input_shape[0]
 
-            batch_size = input_shape[0] if self.stateful else None
-
-            #input dimenstion is 2*vocab len,
-            self.input_dim = 2*input_shape[2]
-            self.input_spec[0] = InputSpec(shape=(batch_size, None, input_shape[2]))
+            self.input_spec[0] = InputSpec(shape=(batch_size, None, main_input_shape[2]))
 
             #h,c
             self.states = [None, None]
@@ -296,21 +327,91 @@ class SC_LSTM(Recurrent):
         def inference_phase(self):
             self.train_phase = False
 
+        def __call__(self, inputs, initial_state=None, **kwargs):
+
+            # If `initial_state` is specified,
+            # and if it a Keras tensor,
+            # then add it to the inputs and temporarily
+            # modify the input spec to include the state.
+            if initial_state is None:
+                return super(Recurrent, self).__call__(inputs, **kwargs)
+
+            if not isinstance(initial_state, (list, tuple)):
+                initial_state = [initial_state]
+
+            is_keras_tensor = hasattr(initial_state[0], '_keras_history')
+            for tensor in initial_state:
+                if hasattr(tensor, '_keras_history') != is_keras_tensor:
+                    raise ValueError('The initial state of an RNN layer cannot be'
+                                     ' specified with a mix of Keras tensors and'
+                                     ' non-Keras tensors')
+
+            if is_keras_tensor:
+                # Compute the full input spec, including state
+                input_spec = self.input_spec
+                state_spec = self.state_spec
+                if not isinstance(input_spec, list):
+                    input_spec = [input_spec]
+                if not isinstance(state_spec, list):
+                    state_spec = [state_spec]
+                self.input_spec = input_spec + state_spec
+
+                # Compute the full inputs, including state
+                inputs = [inputs] + list(initial_state)
+
+                # Perform the call
+                output = super(Recurrent, self).__call__(inputs, **kwargs)
+
+                # Restore original input spec
+                self.input_spec = input_spec
+                return output
+            else:
+                kwargs['initial_state'] = initial_state
+                return super(Recurrent, self).__call__(inputs, **kwargs)
+
         def call(self, inputs, mask=None, training=None, initial_state=None):
             # input shape: `(samples, time (padded with zeros), input_dim)`
             # note that the .build() method of subclasses MUST define
             # self.input_spec and self.state_spec with complete input shapes.
 
-            #input for training [aux_softmax, ground thruth, dialogue act vector]
+            # input for training [aux_softmax, ground thruth, dialogue act vector]
             input_length = K.int_shape(inputs[0])[1]
             input_list = inputs
-            if not self.train_phase and self.condition_on_ptm1:
-                aux_inputs = concatenate(inputs=input_list[:2])
-                initial_state = self.get_initial_state(aux_inputs)
-                constants = self.get_constants(aux_inputs, training=None)
+
+            if self.semantic_condition and self.condition_on_ptm1 and self.generation_only:
+                #takes orig_input while training and dialogue act for conditioning
                 inputs = input_list[0]
+                initial_state = self.get_initial_state(inputs)
+                constants = self.get_constants(inputs, training=None)
+            elif not self.generation_only and self.semantic_condition and self.condition_on_ptm1:
+                #takes the aux the orig input -1 and the dialogue act while training, while testing the o-1 is replaced by ptm1
+                if not self.train_phase and self.condition_on_ptm1:
+                    aux_inputs = concatenate(inputs=input_list[:2])
+                    initial_state = self.get_initial_state(aux_inputs)
+                    constants = self.get_constants(aux_inputs, training=None)
+                    inputs = input_list[0]
+                else:
+                    inputs = concatenate(inputs=input_list[:2])
+                    initial_state = self.get_initial_state(inputs)
+                    constants = self.get_constants(inputs, training=None)
+            elif not self.generation_only and not self.semantic_condition and self.condition_on_ptm1:
+                # takes the aux the orig input -1 and the dialogue act while training, while testing the o-1 is replaced by ptm1
+                if not self.train_phase and self.condition_on_ptm1:
+                    aux_inputs = concatenate(inputs=input_list[:2])
+                    initial_state = self.get_initial_state(aux_inputs)
+                    constants = self.get_constants(aux_inputs, training=None)
+                    inputs = input_list[0]
+                else:
+                    inputs = concatenate(inputs=input_list[:2])
+                    initial_state = self.get_initial_state(inputs)
+                    constants = self.get_constants(inputs, training=None)
+            elif not self.generation_only and not self.semantic_condition and not self.condition_on_ptm1:
+                #takes aux input for train and testing (vanilla lstm)
+                inputs = input_list[0]
+                initial_state = self.get_initial_state(inputs)
+                constants = self.get_constants(inputs, training=None)
             else:
-                inputs = concatenate(inputs=input_list[:2])
+                inputs = input_list[0]
                 initial_state = self.get_initial_state(inputs)
                 constants = self.get_constants(inputs, training=None)
 
@@ -320,22 +421,17 @@ class SC_LSTM(Recurrent):
                 sc_constants = self.get_sc_constants(dialogue_act, training=None)
                 constants = constants + sc_constants
 
-            p0 = self.get_initial_p(inputs)
+            if self.condition_on_ptm1:
+                p0 = self.get_initial_p(inputs)
+                initial_state += p0
 
             if isinstance(mask, list):
                 mask = mask[0]
 
-            ll = 1 if self.semantic_condition else 0
-            if len(initial_state) - ll != len(self.states):
-                raise ValueError('Layer has ' + str(len(self.states)) +
-                                 ' states but was passed ' +
-                                 str(len(initial_state)) +
-                                 ' initial states.')
-
             preprocessed_input = self.preprocess_input(inputs, training=None)
             last_output, outputs, states = K.rnn(self.step,
                                                  preprocessed_input,
-                                                 initial_state + p0,
+                                                 initial_state,
                                                  go_backwards=self.go_backwards,
                                                  mask=mask,
                                                  constants=constants,
@@ -373,9 +469,12 @@ class SC_LSTM(Recurrent):
             if self.semantic_condition:
                 h_tm1 = states[0]
                 c_tm1 = states[1]
-                if not self.train_phase and self.condition_on_ptm1:
+                if not self.train_phase and self.condition_on_ptm1 and not self.generation_only:
                     p_tm1 = states[3]
                     inputs = K.concatenate([inputs, p_tm1], axis=1)
+                elif not self.train_phase and self.condition_on_ptm1 and self.generation_only:
+                    p_tm1 = states[3]
+                    inputs = p_tm1
                 dp_mask = states[4]
                 rec_dp_mask = states[5]
                 sc_dp_mask = states[6]

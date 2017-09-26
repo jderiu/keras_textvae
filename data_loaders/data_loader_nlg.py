@@ -7,7 +7,7 @@ from os.path import join
 import _pickle as cPickle
 
 
-def load_text_gen_data(fname, config_data, vocabulary, noutputs=3):
+def load_text_gen_data(fname, config_data, vocabulary, noutputs=3, random_output=False):
     max_input_length = config_data['max_input_length']
     max_output_length = config_data['max_output_length']
     max_idx = max(vocabulary.values())
@@ -63,13 +63,22 @@ def load_text_gen_data(fname, config_data, vocabulary, noutputs=3):
     for header, _ in headers:
         values = processed_fields[header]
         if header in ['name', 'near']:
+            value_idx = []
+            for value in values:
+                x = np.zeros(2)
+                if value:
+                    x[0] = 1
+                else:
+                    x[1] = 1
+                value_idx.append(x)
+            value_idx = np.array(value_idx).astype('float32')
             #delex
             if header == 'name':
                 values = [name_tok for _ in values]
             elif header == 'near':
                 values = [near_tok for _ in values]
 
-            value_idx = convert2indices(values, vocabulary, dummy_word_idx, dummy_word_idx, max_sent_length=max_input_length)
+            #value_idx = convert2indices(values, vocabulary, dummy_word_idx, dummy_word_idx, max_sent_length=max_input_length)
         else:
             value_idx = []
             for value in values:
@@ -86,6 +95,8 @@ def load_text_gen_data(fname, config_data, vocabulary, noutputs=3):
     outputs_delex = [x.replace(near_name, near_tok) if near_name else x for x, near_name in zip(output_name_delex, processed_fields['near'])]
 
     target_idx = convert2indices(outputs_delex, vocabulary, dummy_word_idx, dummy_word_idx, max_sent_length=max_output_length)
+    if random_output:
+        target_idx = np.ones(shape=target_idx.shape)*dummy_word_idx
     inputs.append(target_idx)
 
     outputs = [np.ones(len(inputs[0]))] * noutputs
@@ -174,5 +185,5 @@ if __name__ == '__main__':
 
     vocab_char = cPickle.load(open(vocab_char_path, 'rb'))
     tweets_fname = join(config_data['tweets_path'], 'devset_reduced.csv')
-    i, o = load_text_gen_data(tweets_fname, config_data, vocab_char, noutputs=2)
+    i, o, m = load_text_gen_data(tweets_fname, config_data, vocab_char, noutputs=2, random_output=True)
     pass

@@ -2,21 +2,27 @@ import numpy as np
 import logging
 
 
-def output_text(model, text_idx, vocab, step='final', delimiter='', fname='logging/test_output' ):
+def output_text(model, text_idx, vocab, step='final', delimiter='', fname='logging/test_output'):
     ofile = open('{}_{}.txt'.format(fname, step), 'wt', encoding='utf-8')
     generated_texts = model.predict(text_idx, batch_size=32)
     inverse_vocab = {v: k for (k, v) in vocab.items()}
 
-    for i, text in enumerate(generated_texts):
+    for i, text in enumerate(generated_texts[0]):
         list_txt_idx = [int(x) for x in text.tolist()]
         txt_list = [inverse_vocab.get(int(x), '') for x in list_txt_idx]
         oline = delimiter.join(txt_list)
         ofile.write('{}'.format(oline) + '\n')
     ofile.close()
 
+    ofile = open('{}_{}_encodings.txt'.format(fname, step), 'wt', encoding='utf-8')
+    for i, encoding in enumerate(generated_texts[1]):
+        encoding = [str(x) for x in encoding.tolist()]
+        oline = ' '.join(encoding)
+        ofile.write('{}\n'.format(oline))
+    ofile.close()
+
 
 def output_lex_text(model, text_idx, text_lex, vocab, step='final', delimiter='', fname='logging/test_output' ):
-
     ofile = open('{}_{}.txt'.format(fname, step), 'wt', encoding='utf-8')
     generated_texts = model.predict(text_idx, batch_size=32)
     inverse_vocab = {v: k for (k, v) in vocab.items()}
@@ -27,7 +33,8 @@ def output_lex_text(model, text_idx, text_lex, vocab, step='final', delimiter=''
         oline = delimiter.join(txt_list)
         for lex_key in text_lex.keys():
             val = text_lex[lex_key][i]
-            oline += '\t{}'.format(val)
+            if val:
+                oline = oline.replace(lex_key, val)
         ofile.write('{}'.format(oline) + '\n')
     ofile.close()
 

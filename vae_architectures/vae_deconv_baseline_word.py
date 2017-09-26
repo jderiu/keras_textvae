@@ -1,13 +1,13 @@
-import keras.backend as K
-import numpy as np
-from keras.layers import Lambda, Conv1D, Conv2DTranspose, Embedding, Input, BatchNormalization, Activation, Flatten, \
-    Dense, Reshape, Layer
-from keras.metrics import binary_crossentropy
-from keras.models import Model
 from os.path import join
+
+import numpy as np
 import theano
 
-from vae_architectures.sampling_layer import Sampling
+import keras.backend as K
+from custom_layers.sampling_layer import Sampling
+from keras.layers import Lambda, Conv1D, Conv2DTranspose, Embedding, Input, BatchNormalization, Activation, Flatten, \
+    Dense, Reshape, Layer
+from keras.models import Model
 
 
 def vae_model(config_data, vocab, step):

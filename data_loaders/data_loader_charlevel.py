@@ -33,9 +33,33 @@ def generate_data_stream(fname, config_data, vocabulary, batch_size, noutputs=2,
                 random.shuffle(current_batch)
                 processed_batch = [x.replace('\r', '').split('\t')[-1] for x in current_batch]
                 batch_idx = convert2indices(processed_batch, vocabulary, dummy_word_idx, dummy_word_idx, max_sent_length=max_sentence_len)
-                yield batch_idx, outputs
+                yield [batch_idx, batch_idx], outputs
                 current_batch = []
         ifile.close()
+
+
+def load_text_pairs(fname, config_data, vocabulary, noutputs=3):
+    max_input_length = config_data['max_input_length']
+    max_output_length = config_data['max_output_length']
+    max_idx = max(vocabulary.values())
+    dummy_word_idx = max_idx + 1
+
+    ifile = open(fname, encoding='utf-8', mode='rt')
+    inputs_raw = []
+    outputs_raw = []
+    for line in ifile:
+        sline = line.replace('\n', '').split('\t')
+        text0 = sline[0]
+        text1 = sline[1]
+
+        inputs_raw.append(text0)
+        outputs_raw.append(text1)
+
+    input_idx = convert2indices(inputs_raw, vocabulary, dummy_word_idx, dummy_word_idx, max_sent_length=max_input_length)
+    target_idx = convert2indices(outputs_raw, vocabulary, dummy_word_idx, dummy_word_idx, max_sent_length=max_output_length)
+
+    outputs = [np.ones(len(input_idx))] * noutputs
+    return [input_idx, target_idx], outputs
 
 
 def load_text_gen_data(fname, config_data, vocabulary, noutputs=3):
@@ -80,7 +104,7 @@ def transform_data(fname, vocabulary, max_sentence_len, noutputs):
     text_idx = convert2indices(curr_tweets, vocabulary, dummy_word_idx, dummy_word_idx, max_sent_length=max_sentence_len)
     outputs = [np.ones(len(curr_tweets))] * noutputs
 
-    return text_idx, outputs
+    return [text_idx, text_idx], outputs
 
 
 def create_vocabulary(files):

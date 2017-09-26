@@ -1,15 +1,13 @@
-import keras.backend as K
 import numpy as np
-from keras.layers import Lambda, Conv1D, Conv2DTranspose, Embedding, Input, BatchNormalization, Activation, Flatten, \
-    Dense, Reshape, concatenate, LSTM, ZeroPadding1D, Layer, PReLU
-
-from keras.metrics import binary_crossentropy, categorical_crossentropy
-from keras.models import Model
-from keras.regularizers import l2
 from theano import tensor as T
 
-
-from vae_architectures.sampling_layer import Sampling
+import keras.backend as K
+from custom_layers.sampling_layer import Sampling
+from custom_layers.sem_recurrent import SC_LSTM
+from custom_layers.word_dropout import WordDropout
+from keras.layers import Lambda, Conv1D, Conv2DTranspose, Embedding, Input, BatchNormalization, Activation, Flatten, \
+    Dense, Reshape, LSTM, ZeroPadding1D, Layer
+from keras.models import Model
 
 
 def get_encoder(input_idx, input_one_hot_embeddings, nfilter, z_size, intermediate_dim):
@@ -20,10 +18,8 @@ def get_encoder(input_idx, input_one_hot_embeddings, nfilter, z_size, intermedia
         strides=2,
         padding='same'
     )(input_one_hot_embeddings)
-    bn1 = BatchNormalization(
-        scale=False
-    )(conv1)
-    relu1 = PReLU()(bn1)
+    bn1 = BatchNormalization()(conv1)
+    relu1 = Activation('relu')(bn1)
     # oshape = (batch_size, sample_size/4, 128)
     conv2 = Conv1D(
         filters=2 * nfilter,
@@ -31,20 +27,16 @@ def get_encoder(input_idx, input_one_hot_embeddings, nfilter, z_size, intermedia
         strides=2,
         padding='same'
     )(relu1)
-    bn2 = BatchNormalization(
-        scale=False
-    )(conv2)
-    relu2 = PReLU()(bn2)
+    bn2 = BatchNormalization()(conv2)
+    relu2 = Activation('relu')(bn2)
     conv3 = Conv1D(
         filters=2 * nfilter,
         kernel_size=3,
         strides=2,
         padding='same',
     )(relu2)
-    bn3 = BatchNormalization(
-        scale=False
-    )(conv3)
-    relu3 = PReLU()(bn3)
+    bn3 = BatchNormalization()(conv3)
+    relu3 = Activation('relu')(bn3)
     # oshape = (batch_size, sample_size/4*256)
     flatten = Flatten()(relu3)
     # need to store the size of the representation after the convolutions -> needed for deconv later
@@ -72,7 +64,7 @@ def get_decoder(decoder_input, intermediate_dim, nfilter,sample_out_size, out_si
     decoder_upsample = Dense(
         int(2 * nfilter * sample_out_size / 8)
     )(hidden_intermediate_dec)
-    relu_int = PReLU()(decoder_upsample)
+    relu_int = Activation('relu')(decoder_upsample)
     if K.image_data_format() == 'channels_first':
         output_shape = (2 * nfilter, int(sample_out_size / 8), 1)
     else:
@@ -85,30 +77,24 @@ def get_decoder(decoder_input, intermediate_dim, nfilter,sample_out_size, out_si
         strides=(2, 1),
         padding='same'
     )(reshape)
-    bn4 = BatchNormalization(
-        scale=False
-    )(deconv1)
-    relu4 = PReLU()(bn4)
+    bn4 = BatchNormalization()(deconv1)
+    relu4 = Activation('relu')(bn4)
     deconv2 = Conv2DTranspose(
         filters=out_size,
         kernel_size=(3, 1),
         strides=(2, 1),
         padding='same'
     )(relu4)
-    bn5 = BatchNormalization(
-        scale=False
-    )(deconv2)
-    relu5 = PReLU()(bn5)
+    bn5 = BatchNormalization()(deconv2)
+    relu5 = Activation('relu')(bn5)
     deconv3 = Conv2DTranspose(
         filters=out_size,
         kernel_size=(3, 1),
         strides=(2, 1),
         padding='same'
     )(relu5)
-    bn6 = BatchNormalization(
-        scale=False
-    )(deconv3)
-    relu6 = PReLU()(bn6)
+    bn6 = BatchNormalization()(deconv3)
+    relu6 = Activation('relu')(bn6)
     reshape = Reshape((sample_out_size, out_size))(relu6)
     softmax_auxiliary = Dense(
         nclasses,
@@ -121,13 +107,15 @@ def get_decoder(decoder_input, intermediate_dim, nfilter,sample_out_size, out_si
     return decoder
 
 
-def vae_model(config_data, vocab, step):
+def vae_model(config_data, vocab, step, pretrained_model=None):
     z_size = config_data['z_size']
     sample_in_size = config_data['max_input_length']
     sample_out_size = config_data['max_output_length']
     nclasses = len(vocab) + 2
     #last available index is reserved as start character
-    start_word_idx = nclasses - 1
+    max_idx = max(vocab.values())
+    dummy_word_idx = max_idx + 1
+    dropout_word_idx = max_idx + 2
     lstm_size = config_data['lstm_size']
     alpha = config_data['alpha']
     intermediate_dim = config_data['intermediate_dim']
@@ -135,8 +123,8 @@ def vae_model(config_data, vocab, step):
     nfilter = 128
     out_size = 200
     eps = 0.001
-    anneal_start = 10000.0
-    anneal_end = anneal_start + 10000.0
+    anneal_start = config_data['anneal_start']
+    anneal_end = anneal_start + config_data['anneal_duration']
 
     l2_regularizer = None
     # == == == == == =
@@ -144,6 +132,8 @@ def vae_model(config_data, vocab, step):
     # == == == == == =
     input_idx = Input(batch_shape=(None, sample_in_size), dtype='int32', name='character_input')
     output_idx = Input(batch_shape=(None, sample_out_size), dtype='int32', name='character_output')
+
+    dropped_output_idx = WordDropout(rate=config_data['word_dropout_rate'], dummy_word=dropout_word_idx)(output_idx)
 
     one_hot_weights = np.identity(nclasses)
     #oshape = (batch_size, sample_size, nclasses)
@@ -166,18 +156,18 @@ def vae_model(config_data, vocab, step):
     )
 
     input_one_hot_embeddings = one_hot_embeddings(input_idx)
-    output_one_hot_embeddings = one_hot_out_embeddings(output_idx)
+    output_one_hot_embeddings = one_hot_out_embeddings(dropped_output_idx)
 
     decoder_input = Input(shape=(z_size,), name='decoder_input')
-    encoder, sampling_input = get_encoder(input_idx, input_one_hot_embeddings, nfilter, z_size, intermediate_dim)
+    encoder, _ = get_encoder(input_idx, input_one_hot_embeddings, nfilter, z_size, intermediate_dim)
     decoder = get_decoder(decoder_input, intermediate_dim, nfilter, sample_out_size, out_size, nclasses)
 
     x_sampled, x_mean, x_los_sigma = encoder(input_idx)
     softmax_auxiliary = decoder(x_sampled)
-    softmax_aux_mean = decoder(x_mean)
+    #softmax_aux_mean = decoder(x_mean)
 
-    def argmax_fun(softmax_output):
-        return K.argmax(softmax_output, axis=2)
+    encoder.summary()
+    decoder.summary()
 
     def remove_last_column(x):
         return x[:, :-1, :]
@@ -185,27 +175,27 @@ def vae_model(config_data, vocab, step):
     padding = ZeroPadding1D(padding=(1, 0))(output_one_hot_embeddings)
     previous_char_slice = Lambda(remove_last_column, output_shape=(sample_out_size, nclasses))(padding)
 
-    combined_input = concatenate(inputs=[softmax_auxiliary, previous_char_slice], axis=2)
-    #MUST BE IMPLEMENTATION 1 or 2
-    lstm = LSTM(
+    #combined_input = concatenate(inputs=[softmax_auxiliary, previous_char_slice], axis=2)
+
+    lstm = SC_LSTM(
         lstm_size,
+        nclasses,
+        generation_only=False,
+        condition_on_ptm1=True,
+        semantic_condition=False,
+        return_da=False,
+        return_state=False,
+        use_bias=True,
         return_sequences=True,
         implementation=2,
-        kernel_regularizer=l2_regularizer,
-        bias_regularizer=l2_regularizer,
-        recurrent_regularizer=l2_regularizer,
-        activity_regularizer=l2_regularizer
+        dropout=0.2,
+        recurrent_dropout=0.2,
+        sc_dropout=0.2
     )
-    recurrent_component = lstm(combined_input)
-    final_softmax_layer = Dense(
-        nclasses,
-        activation='softmax',
-        name='final_softmax_layer',
-        kernel_regularizer=l2_regularizer,
-        bias_regularizer=l2_regularizer,
-        activity_regularizer=l2_regularizer)
 
-    softmax_final = final_softmax_layer(recurrent_component)
+    recurrent_component = lstm([softmax_auxiliary, previous_char_slice])
+    lstm.inference_phase()
+    output_gen_layer = lstm([softmax_auxiliary, softmax_auxiliary])
 
     def vae_cross_ent_loss(args):
         x_truth, x_decoded_final = args
@@ -235,14 +225,17 @@ def vae_model(config_data, vocab, step):
     def identity_loss(y_true, y_pred):
         return y_pred
 
-    main_loss = Lambda(vae_cross_ent_loss, output_shape=(1,), name='main_loss')([output_idx, softmax_final])
+    def argmax_fun(softmax_output):
+        return K.argmax(softmax_output, axis=2)
+
+    argmax = Lambda(argmax_fun, output_shape=(sample_out_size,))(output_gen_layer)
+
+    main_loss = Lambda(vae_cross_ent_loss, output_shape=(1,), name='main_loss')([output_idx, recurrent_component])
     kld_loss = Lambda(vae_kld_loss, output_shape=(1,), name='kld_loss')([x_mean, x_los_sigma])
     aux_loss = Lambda(vae_aux_loss, output_shape=(1,), name='auxiliary_loss')([output_idx, softmax_auxiliary])
-
-    output_gen_layer = LSTMStep(lstm, final_softmax_layer, sample_out_size, nclasses)(softmax_aux_mean)
-
     train_model = Model(inputs=[input_idx, output_idx], outputs=[main_loss, kld_loss, aux_loss])
-    test_model = Model(inputs=[input_idx], outputs=[output_gen_layer])
+
+    test_model = Model(inputs=[input_idx], outputs=[argmax, x_mean])
 
     return train_model, test_model
 
@@ -324,20 +317,5 @@ class LSTMStep(Layer):
             successive_words.append(output[0])
 
         outputs = T.stack(*successive_words).dimshuffle([1, 0])
-
-        # results, _ = theano.scan(
-        #     _step,
-        #     sequences=x,
-        #     outputs_info=output_info,
-        #     non_sequences=constants,
-        #     go_backwards=self.lstm.go_backwards)
-
-        # deal with Theano API inconsistency
-        # if isinstance(results, list):
-        #     outputs = results[0]
-        #     states = results[1:]
-        # else:
-        #     outputs = results
-        #     states = []
 
         return outputs

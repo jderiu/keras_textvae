@@ -37,7 +37,7 @@ def generate_data_stream(fname, config_data, vocabulary, batch_size, noutputs=2,
                 random.shuffle(current_batch)
                 processed_batch = [preprocess(x.replace('\r', '').split('\t')[-1]) for x in current_batch]
                 batch_idx = convert2indices(processed_batch, vocabulary, dummy_word_idx, dummy_word_idx, max_sent_length=max_sentence_len)
-                yield batch_idx, outputs
+                yield [batch_idx, batch_idx], outputs
                 current_batch = []
         ifile.close()
 
@@ -60,7 +60,7 @@ def transform_data(fname, vocabulary, max_sentence_len, noutputs):
     text_idx = convert2indices(processed_batch, vocabulary, dummy_word_idx, dummy_word_idx, max_sent_length=max_sentence_len)
     outputs = [np.ones(len(curr_tweets))] * noutputs
 
-    return text_idx, outputs
+    return [text_idx, text_idx], outputs
 
 if __name__ == "__main__":
     config_data = json.load(open('../configurations/config_vae_word.json'))

@@ -1,13 +1,11 @@
-import keras.backend as K
 import numpy as np
+
+import keras.backend as K
+from custom_layers.sampling_layer import Sampling
 from keras.layers import Lambda, Conv1D, Conv2DTranspose, Embedding, Input, BatchNormalization, Flatten, \
-    Dense, Reshape, concatenate, LSTM, ZeroPadding1D, Layer, PReLU, GaussianNoise
-
+    Dense, Reshape, concatenate, LSTM, ZeroPadding1D, Layer, PReLU
 from keras.models import Model
-from keras.optimizers import RMSprop, Adadelta
-import theano.tensor as T
-
-from vae_architectures.sampling_layer import Sampling
+from keras.optimizers import RMSprop
 
 
 def get_encoder(input_idx, input_one_hot_embeddings, nfilter, intermediate_dim, z_size):

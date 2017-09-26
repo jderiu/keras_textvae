@@ -1,16 +1,11 @@
-import keras.backend as K
-import numpy as np
-from keras.layers import Lambda, Conv1D, Conv2DTranspose, Embedding, Input, BatchNormalization, Activation, Flatten, \
-    Dense, Reshape, concatenate, LSTM, ZeroPadding1D, Layer, PReLU
-
-from keras.metrics import binary_crossentropy, categorical_crossentropy
-from keras.models import Model
-from keras.regularizers import l2
 from theano import tensor as T
-from os.path import join
 
-
-from vae_architectures.sampling_layer import Sampling
+import keras.backend as K
+from custom_layers.sampling_layer import Sampling
+from keras.layers import Lambda, Conv1D, Conv2DTranspose, Input, BatchNormalization, Flatten, \
+    Dense, Reshape, concatenate, LSTM, ZeroPadding1D, Layer, PReLU
+from custom_layers.sampling_layer import Sampling
+from keras.models import Model
 
 
 def get_encoder(config_data, input_idx, input_one_hot_embeddings, nfilter, name, z_size):
