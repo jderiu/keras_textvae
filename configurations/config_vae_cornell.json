@@ -3,6 +3,7 @@
   "max_input_length": 128,
   "max_output_length": 128,
   "z_size": 50,
+  "discriminator_iterations": 5,
   "anneal_start": 5000,
   "anneal_duration": 5000,
   "word_dropout_rate": 0.5,

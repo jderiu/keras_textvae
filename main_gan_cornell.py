@@ -20,14 +20,41 @@ from keras.callbacks import ModelCheckpoint, BaseLogger, ProgbarLogger, Callback
 from data_loaders.data_loader_charlevel import load_text_pairs
 from vae_gan_architectures.vae_gan_cornell import get_vae_gan_model
 import time
-from custom_callbacks import StepCallback, OutputCallback, TerminateOnNaN
+from custom_callbacks import StepCallback, GANOutputCallback, TerminateOnNaN
 from keras_fit_utils.utils import _make_batches, _batch_shuffle, _slice_arrays
+
 
 def set_trainability(model, trainable=False):
     model.trainable = trainable
     for layer in model.layers:
         layer.trainable = trainable
 
+
+def clip_weights(model):
+    for layer in model.layers:
+        weights = layer.get_weights()
+        weights = [np.clip(w, -0.5, 0.5) for w in weights]
+        layer.set_weights(weights)
+
+
+def sample_noise(noise_scale, batch_size, noise_dim):
+    return np.random.normal(scale=noise_scale, size=(batch_size, noise_dim[0]))
+
+
+def gen_batch(X, batch_size):
+    while True:
+        idx = np.random.choice(X.shape[0], batch_size, replace=False)
+        yield idx
+
+
+def get_disc_batch(X_real_batch, generator_model, batch_counter, batch_size, noise_dim, noise_scale=0.5):
+    # Pass noise to the generator
+    noise_input = sample_noise(noise_scale, batch_size, noise_dim)
+    # Produce an output
+    X_disc_gen = generator_model.predict(noise_input, batch_size=batch_size)
+    X_disc_real = X_real_batch[:batch_size]
+
+    return X_disc_real, X_disc_gen
 
 def main(args):
 
@@ -60,6 +87,7 @@ def main(args):
 
         batch_size = config_data['batch_size']
         epochs = config_data['nb_epochs']
+        discriminator_iterations = config_data['discriminator_iterations']
         tweets_path = config_data['tweets_path']
         vocab_path = config_data['vocab_path']
         vocab = cPickle.load(open(join(vocab_path, 'vocabulary.pkl'), 'rb'))
@@ -77,6 +105,9 @@ def main(args):
         logging.info('Load Output Validation Data')
         valid_dev_input, valid_dev_output = load_text_pairs(join(tweets_path, 'test_set.tsv'), config_data, vocab,noutputs)
 
+        #train_input = [x[:1213] for x in train_input]
+        #train_output = [x[:1213] for x in train_output]
+
         noise_valid_input = np.zeros(shape=(valid_input[0].shape[0], config_data['z_size']))
 
         step = K.variable(1.)
@@ -84,7 +115,7 @@ def main(args):
         # == == == == == == == == == == =
         # Define and load the CNN model
         # == == == == == == == == == == =
-        vae_model, vae_model_test, decoder_discr_model, discriminator_model, discriminator = get_vae_gan_model(config_data, vocab, step)
+        vae_model, vae_model_test, decoder_discr_model, decoder_test_model, discriminator_model, discriminator = get_vae_gan_model(config_data, vocab, step)
         with open(os.path.join(log_path, 'models.txt'), 'wt') as fh:
             fh.write('VAE Model\n')
             fh.write('---------\n')
@@ -95,6 +126,9 @@ def main(args):
             fh.write('Decoder Discriminator Model\n')
             fh.write('---------------------------\n')
             decoder_discr_model.summary(print_fn=lambda x: fh.write(x + '\n'))
+            fh.write('Decoder Test Model\n')
+            fh.write('---------------------------\n')
+            decoder_test_model.summary(print_fn=lambda x: fh.write(x + '\n'))
             fh.write('Discriminator Model\n')
             fh.write('-------------------\n')
             discriminator_model.summary(print_fn=lambda x: fh.write(x + '\n'))
@@ -105,14 +139,14 @@ def main(args):
         enc_out_labels = ['enc_' + s for s in vae_model._get_deduped_metrics_names()]
         dec_out_labels = ['dec_' + s for s in decoder_discr_model._get_deduped_metrics_names()]
         dis_out_labels = ['dis_' + s for s in discriminator_model._get_deduped_metrics_names()]
-        out_labels = enc_out_labels + dec_out_labels + dis_out_labels
+        out_labels = enc_out_labels + dec_out_labels + ['dis_real', 'dis_gen', 'dis_noise']
 
         #out_labels = full_model._get_deduped_metrics_names()
 
         callback_metrics = out_labels + ['val_' + n for n in out_labels]
 
         step_callback = StepCallback(step, steps_per_epoch)
-        output_callback = OutputCallback(vae_model_test, valid_dev_input[0], 1, vocab, '', fname='{}/test_output'.format(log_path))
+        output_callback = GANOutputCallback(vae_model_test, valid_dev_input[0], 1, vocab, '', fname='{}/test_output'.format(log_path))
         callbacks = CallbackList([BaseLogger(), ProgbarLogger(count_mode='steps'), step_callback, output_callback, model_checkpoint, terminate_on_nan])
 
         callbacks.set_model(vae_model_test)
@@ -130,6 +164,7 @@ def main(args):
         num_train_samples = train_input[0].shape[0]
         index_array = np.arange(num_train_samples)
 
+        steps = 0
         epoch = initial_epoch
         while epoch < epochs:
             epoch_logs = {}
@@ -152,26 +187,53 @@ def main(args):
                 set_trainability(discriminator, trainable=False)
                 enc_outs = vae_model.train_on_batch(x=X, y=y[:3])
 
-                noise_input = np.zeros(shape=(batch_size, config_data['z_size']))
-                decoder_discr_input = [X[0], noise_input]
-                dec_outs = decoder_discr_model.train_on_batch(x=decoder_discr_input, y=-np.ones(shape=(batch_size, 1)))
-
                 set_trainability(discriminator, trainable=True)
-                #train on real data
-                x_fake = vae_model_test.predict_on_batch(x=X[0])
+                list_disc_loss_real = []
+                list_disc_loss_gen = []
+                list_disc_loss_noise = []
+                if steps < 25 or steps % 500 == 0:
+                    disc_iterations = 100
+                else:
+                    disc_iterations = discriminator_iterations
+                noise_input = np.zeros(shape=(len(batch_ids), config_data['z_size']))
+                for disc_it in range(disc_iterations):
+                    #clip_weights(discriminator)
+                    real_idx = np.random.choice(train_input[0].shape[0], len(batch_ids), replace=False)
+                    train_real_batch = [x[real_idx] for x in train_input]
 
+                    #train on real data
+                    x_fake = vae_model_test.predict_on_batch(x=train_real_batch[0])
+                    x_noise_fake = decoder_test_model.predict_on_batch(x=noise_input)
 
-                x_discr_training_inputs = X[0] + X[0]
-                x_discr_training_outputs = X[1] + x_fake
-                x_discr = [x_discr_training_inputs, x_discr_training_outputs]
-                y_discr_training = np.concatenate(
-                    (
-                        -np.ones(shape=(batch_size, 1)),
-                        np.ones(shape=(batch_size, 1))
-                    ))
+                    train_input_discr = np.concatenate((train_real_batch[0], train_real_batch[0], train_real_batch[0]))
+                    train_output_discr = np.concatenate((train_real_batch[1], x_fake, x_noise_fake))
+                    labels = np.asarray(len(batch_ids)*[1] + 2*len(batch_ids)*[-1])
 
-                dis_outs = discriminator_model.train_on_batch(x_discr, y_discr_training)
-                outs = enc_outs + dec_outs + [dis_outs]
+                    index_array_discr = np.arange(len(labels))
+                    np.random.shuffle(index_array_discr)
+
+                    discr_batch = [train_input_discr[index_array_discr], train_output_discr[index_array_discr]]
+                    discr_batch_labels = labels[index_array_discr]
+
+                    dis_outs_real = discriminator_model.train_on_batch(discr_batch, discr_batch_labels)
+                    #dis_outs_real = discriminator_model.train_on_batch(train_real_batch, -np.ones(shape=(len(batch_ids), 1)))
+                    #dis_outs_gen = discriminator_model.train_on_batch([train_real_batch[0], x_fake], np.ones(shape=(len(batch_ids), 1)))
+                    #dis_outs_gen_noise = discriminator_model.train_on_batch([train_real_batch[0], x_noise_fake], np.ones(shape=(len(batch_ids), 1)))
+
+                    list_disc_loss_real.append(dis_outs_real)
+                    #list_disc_loss_gen.append(dis_outs_gen)
+                    #list_disc_loss_noise.append(dis_outs_gen_noise)
+
+                loss_d_real = -np.mean(list_disc_loss_real)
+                loss_d_gen = np.mean(list_disc_loss_gen)
+                loss_d_noise = np.mean(list_disc_loss_noise)
+
+                set_trainability(discriminator, trainable=False)
+
+                decoder_discr_input = [X[0], noise_input]
+                dec_outs = decoder_discr_model.train_on_batch(x=decoder_discr_input, y=-np.ones(shape=(len(batch_ids), 1)))
+
+                outs = enc_outs + [dec_outs] + [loss_d_real]
 
                 for l, o in zip(out_labels, outs):
                     batch_logs[l] = o
@@ -180,7 +242,7 @@ def main(args):
                 epoch_logs = {}
                 batch_index += 1
                 steps_done += 1
-
+                steps += 1
                 # Epoch finished.
                 if steps_done >= steps_per_epoch:
                     valid_len = valid_output[0].shape[0]
@@ -188,7 +250,7 @@ def main(args):
                     dec_val_outs = decoder_discr_model.evaluate([valid_input[0], noise_valid_input], -np.ones(shape=(valid_len, 1)), verbose=False)
                     dis_val_outs = discriminator_model.evaluate(valid_input, -np.ones(shape=(valid_len, 1)), verbose=False)
 
-                    val_outs = enc_val_outs + dec_val_outs + [dis_val_outs]
+                    val_outs = enc_val_outs + [dec_val_outs] + [dis_val_outs]
 
                     #val_outs = full_model.evaluate(valid_input, valid_output, verbose=False)
 

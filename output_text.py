@@ -7,18 +7,11 @@ def output_text(model, text_idx, vocab, step='final', delimiter='', fname='loggi
     generated_texts = model.predict(text_idx, batch_size=32)
     inverse_vocab = {v: k for (k, v) in vocab.items()}
 
-    for i, text in enumerate(generated_texts[0]):
+    for i, text in enumerate(generated_texts):
         list_txt_idx = [int(x) for x in text.tolist()]
         txt_list = [inverse_vocab.get(int(x), '') for x in list_txt_idx]
         oline = delimiter.join(txt_list)
         ofile.write('{}'.format(oline) + '\n')
-    ofile.close()
-
-    ofile = open('{}_{}_encodings.txt'.format(fname, step), 'wt', encoding='utf-8')
-    for i, encoding in enumerate(generated_texts[1]):
-        encoding = [str(x) for x in encoding.tolist()]
-        oline = ' '.join(encoding)
-        ofile.write('{}\n'.format(oline))
     ofile.close()
 
 

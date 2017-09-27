@@ -51,6 +51,43 @@ class OutputCallback(Callback):
         self.ep_end_weights = {}
 
 
+class GANOutputCallback(Callback):
+    def __init__(self, test_model, validation_input, frequency, vocabulary, delimiter, fname='logging/test_output'):
+        self.validation_input = validation_input
+        self.vocabulary = vocabulary
+        self.test_model = test_model
+        self.frequency = frequency
+        self.delimiter = delimiter
+        self.fname = fname
+        super(GANOutputCallback, self).__init__()
+
+    def on_epoch_end(self, epoch, logs={}):
+        if epoch % self.frequency == 0:
+            output_text(self.test_model, self.validation_input, self.vocabulary, str(epoch), delimiter=self.delimiter, fname=self.fname)
+        self.ep_end_weights = {}
+
+        #loss = logs.get('loss', '-')
+        enc_loss = logs.get('enc_loss', '-')
+        enc_main_loss = logs.get('enc_main_loss_loss', '-')
+        enc_kld_loss = logs.get('enc_kld_loss_loss', '-')
+        enc_aux_loss = logs.get('enc_auxiliary_loss_loss', '-')
+        dec_loss = logs.get('dec_loss', '-')
+        dis_loss = logs.get('dis_loss', '-')
+
+        val_enc_loss = logs.get('val_enc_loss', '-')
+        val_enc_main_loss = logs.get('val_enc_main_loss_loss', '-')
+        val_enc_kld_loss = logs.get('val_enc_kld_loss_loss', '-')
+        val_enc_aux_loss = logs.get('val_enc_auxiliary_loss_loss', '-')
+        val_dec_loss = logs.get('val_dec_loss', '-')
+        val_dis_loss = logs.get('val_dis_loss', '-')
+
+        logging.info('TRAINING: Enc Loss: {0: <32}\tEnc Main Loss: {1: <32}\tEnc KLD Loss: {2: <32}\tEnc Aux Loss: {3: <32}\tDec Loss: {4: <32}\tDis Loss: {5: <32}'.format(enc_loss, enc_main_loss, enc_kld_loss, enc_aux_loss, dec_loss, dis_loss))
+        logging.info('VALIDATION: Enc Loss: {0: <32}\tEnc Main Loss: {1: <32}\tEnc KLD Loss: {2: <32}\tEnc Aux Loss: {3: <32}\tDec Loss: {4: <32}\tDis Loss: {5: <32}'.format(val_enc_loss, val_enc_main_loss, val_enc_kld_loss, val_enc_aux_loss, val_dec_loss, val_dis_loss))
+        #reset datastructures
+        self.ep_begin_weights = {}
+        self.ep_end_weights = {}
+
+
 class LexOutputCallback(Callback):
     def __init__(self, test_model, validation_input, validation_lex, frequency, vocabulary, delimiter, fname='logging/test_output'):
         self.validation_input = validation_input

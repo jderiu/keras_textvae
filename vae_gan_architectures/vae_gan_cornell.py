@@ -104,7 +104,7 @@ def get_descriminator(g_in, g_out, nfilter, intermediate_dim):
     conv_concat = concatenate(inputs=[in_conv0, in_conv1], axis=1)
     hidden_intermediate_discr = Dense(intermediate_dim, activation='relu', name='discr_activation')(conv_concat)
 
-    sigmoid = Dense(1, activation='sigmoid', name='discrimiator_sigmoid')(hidden_intermediate_discr)
+    sigmoid = Dense(1, activation='tanh', name='discrimiator_sigmoid')(hidden_intermediate_discr)
 
     discriminator = Model(inputs=[g_in, g_out], outputs=[sigmoid])
     return discriminator
@@ -269,6 +269,13 @@ def get_vae_gan_model(config_data, vocab_char, step):
     discr_sigmoid = discriminator([input_one_hot_embeddings, output_gen_layer])
     decoder_discr_model = Model(inputs=[input_idx, noise_input], outputs=discr_sigmoid)
 
+    #decoder test
+    x_aux_prior = decoder_train(noise)
+    lstm.train_phase = False
+    output_gen_layer = lstm([x_aux_prior, x_aux_prior])
+    argmax = Lambda(argmax_fun, output_shape=(sample_out_size,))(output_gen_layer)
+    decoder_test_model = Model(inputs=noise_input, outputs=argmax)
+
     #discriminator_training
     discr_input = Input(batch_shape=(None, sample_out_size), dtype='int32', name='discr_output')
     discr_emb = one_hot_out_embeddings(discr_input)
@@ -285,4 +292,4 @@ def get_vae_gan_model(config_data, vocab_char, step):
     decoder_discr_model.compile(optimizer=optimizer_rms, loss=wasserstein)
     discriminator_model.compile(optimizer=optimizer_rms, loss=wasserstein)
 
-    return vae_model_train, vae_model_test, decoder_discr_model, discriminator_model, discriminator
+    return vae_model_train, vae_model_test, decoder_discr_model, decoder_test_model, discriminator_model, discriminator
