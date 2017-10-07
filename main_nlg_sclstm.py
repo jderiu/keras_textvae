@@ -63,7 +63,7 @@ def main(args):
         #== == == == == == =
 
         delimiter = ''
-        noutputs = 1
+        noutputs = 3
 
         logging.info('Load Training Data')
         train_input, train_output, train_lex = load_text_gen_data(join(tweets_path, 'trainset.csv'),   config_data, vocab, noutputs)
@@ -80,6 +80,7 @@ def main(args):
         cnn_model, test_model = vae_model(config_data, vocab, step)
         cnn_model.save_weights(config_data['base_model_path'])
         cnn_model.summary()
+        test_model.summary()
 
         model_path = 'models/vae_model/'
         steps_per_epoch = ceil(train_output[0].shape[0] / config_data['batch_size'])
@@ -105,7 +106,7 @@ def main(args):
                        reduce_callback],
         )
 
-        test_model.summary()
+
 
         cnn_out_path = join(config_data['output_path'], 'trained_deconv_vae_{}_model'.format(config_data['model_type']))
         cnn_model.save_weights(cnn_out_path)

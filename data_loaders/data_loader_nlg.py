@@ -8,7 +8,6 @@ import _pickle as cPickle
 
 
 def load_text_gen_data(fname, config_data, vocabulary, noutputs=3, random_output=False):
-    max_input_length = config_data['max_input_length']
     max_output_length = config_data['max_output_length']
     max_idx = max(vocabulary.values())
     dummy_word_idx = max_idx + 1

@@ -1,5 +1,6 @@
 from keras.models import Layer
 import keras.backend as K
+import tensorflow as tf
 import numpy as np
 from theano.sandbox.rng_mrg import MRG_RandomStreams as RandomStreams
 
@@ -35,7 +36,13 @@ class WordDropout(Layer):
         if 0. < self.p < 1.:
 
             def dropped_inputs():
-                mask = self.srng.binomial(inputs.shape, p=1 - self.p, dtype='int32')
+                shape = K.shape(inputs)
+                mask = tf.where(
+                    condition=K.random_uniform(shape=shape, minval=0.0, maxval=1.0, dtype='float32') <= 1 - self.p,
+                    x=K.ones_like(x=inputs, dtype='int32'),
+                    y=K.zeros_like(x=inputs, dtype='int32')
+                )
+                #mask = K.random_binomial(shape=K.shape(inputs), p=1 - self.p)
                 return inputs * mask + self.dummy_word * (1 - mask)
 
             return K.in_train_phase(dropped_inputs, inputs, training=training)

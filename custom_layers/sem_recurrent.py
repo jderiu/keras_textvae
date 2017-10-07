@@ -7,6 +7,8 @@ from keras import regularizers
 from keras import constraints
 from keras.engine import InputSpec
 
+from custom_layers.recurrent import sc_tf_rnn
+
 
 class SC_LSTM(Recurrent):
         def __init__(self, units, out_units,
@@ -240,7 +242,8 @@ class SC_LSTM(Recurrent):
                 return [output_shape] + state_shape
             if self.return_da:
                 da_state_shape = (input_shape[0], self.dialogue_act_dim)
-                return [output_shape, da_state_shape]
+                da_outs_shape = (input_shape[0], input_shape[1], self.dialogue_act_dim)
+                return [output_shape, da_state_shape, da_outs_shape]
             else:
                 return output_shape
 
@@ -253,7 +256,7 @@ class SC_LSTM(Recurrent):
                 return [output_mask] + state_mask
             elif self.return_da:
                 state_mask = None
-                return [output_mask, state_mask]
+                return [output_mask, state_mask, state_mask]
             else:
                 return output_mask
 
@@ -429,14 +432,21 @@ class SC_LSTM(Recurrent):
                 mask = mask[0]
 
             preprocessed_input = self.preprocess_input(inputs, training=None)
-            last_output, outputs, states = K.rnn(self.step,
-                                                 preprocessed_input,
-                                                 initial_state,
-                                                 go_backwards=self.go_backwards,
-                                                 mask=mask,
-                                                 constants=constants,
-                                                 unroll=self.unroll,
-                                                 input_length=input_length)
+            rnn_output = sc_tf_rnn(
+                self.step,
+                preprocessed_input,
+                initial_state,
+                semantic_conditioning=self.semantic_condition,
+                go_backwards=self.go_backwards,
+                mask=mask,
+                constants=constants,
+                unroll=self.unroll,
+                input_length=input_length)
+
+            if self.semantic_condition:
+                last_output, outputs, last_da, da_outputs, states = rnn_output
+            else:
+                last_output, outputs, states = rnn_output
 
             # Properly set learning phase
             if 0.0 < self.dropout + self.recurrent_dropout + self.sc_dropout:
@@ -453,16 +463,12 @@ class SC_LSTM(Recurrent):
                     states = [states]
                 else:
                     states = list(states)
-                return [output] + states
-            elif self.return_da:
-                if not isinstance(states, (list, tuple)):
-                    states = [states]
-                else:
-                    states = list(states)
-                da_state = states
-                return [output, states[2]]
-            else:
-                return output
+                output = [output] + states
+
+            if self.semantic_condition and self.return_da:
+                output = [output, last_da, da_outputs]
+
+            return output
 
         def step(self, inputs, states):
 
@@ -515,19 +521,25 @@ class SC_LSTM(Recurrent):
             h = o * self.activation(c)
 
             #output distibution of target word prob: p in (batch_size, nclasses)
-            p = K.softmax(K.dot(h, self.out_kernel))
+            p_softmax = K.softmax(K.dot(h, self.out_kernel))
 
             if not self.train_phase and self.condition_on_ptm1:
-                lables = K.argmax(p, axis=1)
-                p = K.one_hot(lables, self.out_units)
+                lables = K.argmax(p_softmax, axis=1)
+                p_one_hot = K.one_hot(lables, self.out_units)
 
             if 0.0 < self.dropout + self.recurrent_dropout + self.sc_dropout:
                 h._uses_learning_phase = True
 
             if self.semantic_condition:
-                return p, [h, c, d, p]
+                if self.train_phase:
+                    return p_softmax, [h, c, d, p_softmax]
+                else:
+                    return p_softmax, [h, c, d, p_one_hot]
             else:
-                return p, [h, c, p]
+                if self.train_phase:
+                    return p_softmax, [h, c, p_softmax]
+                else:
+                    return p_softmax, [h,c,p_one_hot]
 
         def get_config(self):
             config = {'units': self.units,

@@ -66,7 +66,7 @@ RUN echo "[global]\ndevice=cuda0\nfloatX=float32\noptimizer_including=cudnn\nmod
 	> /root/.theanorc
 
 # Install TensorFlow
-RUN pip install --ignore-installed --upgrade https://storage.googleapis.com/tensorflow/linux/cpu/tensorflow-1.2.1-cp36-cp36m-linux_x86_64.whl
+RUN pip install --ignore-installed --upgrade tensorflow-gpu==1.2
 
 # Install Keras
 RUN pip install --no-cache-dir --upgrade keras
@@ -76,8 +76,6 @@ RUN touch /root/.keras/keras.json
 RUN echo "{"floatx": "float32",\n"epsilon": 1e-07,\n"backend": "theano",\n"image_data_format": "channels_last"}" \
 	> /root/.keras/keras.json
 	
-	
-
 
 RUN pip install --no-cache-dir --upgrade nltk
 RUN pip install --no-cache-dir --upgrade tqdm
@@ -90,7 +88,10 @@ RUN python -m nltk.downloader stopwords
 RUN mkdir /DLFramework
 
 COPY vae_architectures /DLFramework/vae_architectures
+COPY keras_fit_utils /DLFramework/keras_fit_utils
+COPY custom_layers /DLFramework/custom_layers
 COPY vae_gan_architectures /DLFramework/vae_gan_architectures
+COPY sc_lstm_architecutre /DLFramework/sc_lstm_architecutre
 COPY data_loaders /DLFramework/data_loaders
 COPY preprocessing_utils.py /DLFramework
 COPY output_text.py /DLFramework
@@ -98,6 +99,9 @@ COPY custom_callbacks.py /DLFramework
 COPY main.py /DLFramework
 COPY main_hybrid.py /DLFramework
 COPY main_hybrid_gan.py /DLFramework
+COPY main_cornell.py /DLFramework
+COPY main_gan_cornell.py /DLFramework
+COPY main_nlg_sclstm.py /DLFramework
 
 WORKDIR /DLFramework
 
