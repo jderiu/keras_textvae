@@ -19,7 +19,7 @@ import keras.backend as K
 from keras.callbacks import Callback, ModelCheckpoint, ReduceLROnPlateau
 from keras.optimizers import Adam, Nadam, Adadelta
 from output_text import output_text
-from sc_lstm_architecutre.sclstm_architecture import vae_model
+from sc_lstm_architecutre.sclstm_architecture_wordbased import vae_model
 from data_loaders.data_loader_nlg import load_text_gen_data
 from custom_callbacks import StepCallback, LexOutputCallback, TerminateOnNaN
 import time
@@ -56,7 +56,7 @@ def main(args):
 
         tweets_path = config_data['tweets_path']
         vocab_path = config_data['vocab_path']
-        vocab = cPickle.load(open(join(vocab_path, 'vocabulary.pkl'), 'rb'))
+        vocab = cPickle.load(open(join(vocab_path, 'vocab_word.pkl'), 'rb'))
 
         #== == == == == == =
         # Load all the Data
@@ -66,11 +66,11 @@ def main(args):
         noutputs = 3
 
         logging.info('Load Training Data')
-        train_input, train_output, train_lex = load_text_gen_data(join(tweets_path, 'trainset.csv'),   config_data, vocab, noutputs)
+        train_input, train_output, train_lex = load_text_gen_data(join(tweets_path, 'trainset.csv'),   config_data, vocab, noutputs, word_based=True)
         logging.info('Load Validation Data')
-        valid_input, valid_output, valid_lex = load_text_gen_data(join(tweets_path, 'devset.csv'), config_data, vocab, noutputs)
+        valid_input, valid_output, valid_lex = load_text_gen_data(join(tweets_path, 'devset.csv'), config_data, vocab, noutputs, word_based=True)
         logging.info('Load Output Validation Data')
-        valid_dev_input, valid_dev_output, valid_dev_lex = load_text_gen_data(join(tweets_path, 'devset_reduced.csv'), config_data, vocab, noutputs, random_output=True)
+        valid_dev_input, valid_dev_output, valid_dev_lex = load_text_gen_data(join(tweets_path, 'devset_reduced.csv'), config_data, vocab, noutputs, random_output=True, word_based=True)
 
         step = K.variable(1.)
 
@@ -105,8 +105,6 @@ def main(args):
                        model_checkpoint,
                        reduce_callback],
         )
-
-
 
         cnn_out_path = join(config_data['output_path'], 'trained_deconv_vae_{}_model'.format(config_data['model_type']))
         cnn_model.save_weights(cnn_out_path)

@@ -11,9 +11,9 @@ from custom_layers.recurrent import sc_tf_rnn
 
 
 class SC_LSTM(Recurrent):
-        def __init__(self, units, out_units,
+        def __init__(self, units, in_units, out_units,
                      return_da=True,
-                     generation_only = False,
+                     generation_only=False,
                      condition_on_ptm1=True,
                      semantic_condition=True,
                      activation='tanh',
@@ -40,6 +40,7 @@ class SC_LSTM(Recurrent):
             super(SC_LSTM, self).__init__(**kwargs)
             self.units = units
             self.out_units = out_units
+            self.in_units = in_units
             self.activation = activations.get(activation)
             self.recurrent_activation = activations.get(recurrent_activation)
             self.use_bias = use_bias
@@ -118,7 +119,6 @@ class SC_LSTM(Recurrent):
             if self.semantic_condition:
                 diact_shape = input_shape[-1]
                 self.dialogue_act_dim = diact_shape[-1]
-
 
             self.input_spec[0] = InputSpec(shape=(batch_size, None, main_input_shape[2]))
 

@@ -20,7 +20,7 @@ class WordDropout(Layer):
                 you can use `noise_shape=(batch_size, 1, features)`.
             seed: A Python integer to use as random seed.
         """
-    def __init__(self, rate, dummy_word, noise_shape=None, seed=None, **kwargs):
+    def __init__(self, rate, dummy_word, anneal_step=1.0, anneal_start=0, anneal_end=1000, noise_shape=None, seed=None, **kwargs):
         super(WordDropout, self).__init__(**kwargs)
         self.srng = RandomStreams(seed=np.random.randint(1000000))
         self.p = min(1., max(0., rate))
@@ -28,17 +28,21 @@ class WordDropout(Layer):
         self.noise_shape = noise_shape
         self.seed = seed
         self.supports_masking = True
+        self.anneal_step = anneal_step
+        self.anneal_end = anneal_end
+        self.anneal_start = anneal_start
 
     def _get_noise_shape(self, _):
         return self.noise_shape
 
     def call(self, inputs, training=None):
         if 0. < self.p < 1.:
+            anneal_weight = K.clip((self.anneal_step - self.anneal_start) / (self.anneal_end - self.anneal_start), 1e-5, 1)
 
             def dropped_inputs():
                 shape = K.shape(inputs)
                 mask = tf.where(
-                    condition=K.random_uniform(shape=shape, minval=0.0, maxval=1.0, dtype='float32') <= 1 - self.p,
+                    condition=K.random_uniform(shape=shape, minval=0.0, maxval=1.0, dtype='float32') <= 1 - self.p*anneal_weight,
                     x=K.ones_like(x=inputs, dtype='int32'),
                     y=K.zeros_like(x=inputs, dtype='int32')
                 )

@@ -5,10 +5,28 @@ from nltk.tokenize import TweetTokenizer, WordPunctTokenizer
 import re
 
 
-tokenzer = TweetTokenizer()
+def preprocess_nlg_text(text, name, near, word_based=True):
+    name_tok = 'XNAME'
+    near_tok = 'XNEAR'
 
+    text = text.replace('\n', '').replace('\r', '').replace('\t', ' ')
+
+    if name is not '':
+        text = text.replace(name, name_tok)
+
+    if near is not '':
+        text = text.replace(near, near_tok)
+
+    if word_based:
+        tokenizer = WordPunctTokenizer()
+        tokens = tokenizer.tokenize(text)
+    else:
+        tokens = text
+
+    return tokens
 
 def preprocess(tweet):
+    tokenzer = TweetTokenizer()
     #lowercase and normalize urls
     tweet = tweet.lower()
     tweet = tweet.replace('\n', '')
@@ -22,6 +40,7 @@ def preprocess(tweet):
 
 
 def preprocess_char_x_word(tweet):
+    tokenzer = TweetTokenizer()
     # lowercase and normalize urls
     tweet = tweet.lower()
     tweet = tweet.replace('\n', '')

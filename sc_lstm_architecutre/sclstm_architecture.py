@@ -1,14 +1,11 @@
 import keras.backend as K
 import numpy as np
-from keras.layers import Lambda, Embedding, Input, concatenate, ZeroPadding1D, Masking
+from keras.layers import Lambda, Embedding, Input, concatenate, ZeroPadding1D
 
 from custom_layers.sem_recurrent import SC_LSTM
 from custom_layers.word_dropout import WordDropout
 from custom_layers.ctc_decoding_layer import CTC_Decoding_layer
 from keras.models import Model
-from custom_layers.recurrent import ctc_decode
-
-
 
 def vae_model(config_data, vocab, step):
     sample_out_size = config_data['max_output_length']
@@ -34,7 +31,7 @@ def vae_model(config_data, vocab, step):
     output_idx = Input(batch_shape=(None, sample_out_size), dtype='int32', name='character_output')
 
     inputs = [name_idx, eat_type_idx, price_range_idx, customer_feedback_idx, near_idx, food_idx, area_idx, family_idx]
-    word_dropout = WordDropout(rate=0.2, dummy_word=dummy_word_idx)(output_idx)
+    word_dropout = WordDropout(rate=0.0, dummy_word=dummy_word_idx, anneal_step=step)(output_idx)
 
     one_hot_weights = np.identity(nclasses)
 
@@ -47,12 +44,9 @@ def vae_model(config_data, vocab, step):
         name='one_hot_out_embeddings'
     )
 
-    output_one_hot_embeddings = one_hot_out_embeddings(output_idx)
+    output_one_hot_embeddings = one_hot_out_embeddings(word_dropout)
 
     dialogue_act = concatenate(inputs=inputs)
-
-    def argmax_fun(softmax_output):
-        return K.argmax(softmax_output, axis=2)
 
     def remove_last_column(x):
         return x[:, :-1, :]
@@ -103,7 +97,7 @@ def vae_model(config_data, vocab, step):
         zeta = 10e-4
         n = 100
         #shape: batch_size, sample_size
-        norm_of_differnece =K.sum(K.square(da_t), axis=2)
+        norm_of_differnece = K.sum(K.square(da_t), axis=2)
         n1 = zeta**norm_of_differnece
         n2 = n*n1
         return K.sum(n2, axis=1)
@@ -120,8 +114,6 @@ def vae_model(config_data, vocab, step):
     main_loss = Lambda(vae_cross_ent_loss, output_shape=(1,), name='main')([output_one_hot_embeddings, recurrent_component])
     da_loss = Lambda(da_loss_fun, output_shape=(1,), name='dialogue_act')([last_da])
     da_history_loss = Lambda(da_history_loss_fun, output_shape=(1,), name='dialogue_history')([da_array])
-
-    #output_gen_layer = LSTMStep(lstm, final_softmax_layer, sample_out_size, nclasses)(softmax_auxiliary)
 
     train_model = Model(inputs=inputs + [output_idx], outputs=[main_loss, da_loss, da_history_loss])
     test_model = Model(inputs=inputs + [output_idx], outputs=[argmax] + beams)

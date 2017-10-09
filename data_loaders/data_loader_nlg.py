@@ -1,16 +1,15 @@
-from preprocessing_utils import convert2indices
+from preprocessing_utils import convert2indices, preprocess_nlg_text
 import csv
 import numpy as np
-from collections import defaultdict
+from collections import defaultdict, Counter
 import json
 from os.path import join
 import _pickle as cPickle
 
 
-def load_text_gen_data(fname, config_data, vocabulary, noutputs=3, random_output=False):
+def load_text_gen_data(fname, config_data, vocabulary, noutputs=3, random_output=False, word_based=False):
     max_output_length = config_data['max_output_length']
-    max_idx = max(vocabulary.values())
-    dummy_word_idx = max_idx + 1
+    dummy_word_idx = len(vocabulary)
     reader = csv.DictReader(open(fname, encoding='utf-8', mode='rt'))
 
     headers = [
@@ -89,9 +88,7 @@ def load_text_gen_data(fname, config_data, vocabulary, noutputs=3, random_output
             value_idx = np.array(value_idx).astype('float32')
         inputs.append(value_idx)
 
-    #outputs_raw = [x.replace(name, name_tok).replace(near_name, near_tok) for x, name, near_name in zip(outputs_raw, processed_fields['name'], processed_fields['near'])]
-    output_name_delex = [x.replace(name, name_tok) if name else x for x, name in zip(outputs_raw, processed_fields['name'])]
-    outputs_delex = [x.replace(near_name, near_tok) if near_name else x for x, near_name in zip(output_name_delex, processed_fields['near'])]
+    outputs_delex = [preprocess_nlg_text(x, name, near, word_based=word_based) for x, name, near in zip(outputs_raw, processed_fields['name'], processed_fields['near'])]
 
     target_idx = convert2indices(outputs_delex, vocabulary, dummy_word_idx, dummy_word_idx, max_sent_length=max_output_length)
     if random_output:
@@ -178,11 +175,71 @@ def process_family_friendly(text):
     }.get(text, 2)
 
 
+def get_texts(file_path):
+    reader = csv.DictReader(open(file_path, encoding='utf-8', mode='rt'))
+
+    headers = [
+        ('name', process_name),
+        ('eatType', process_eat_type),
+        ('priceRange', process_price_range),
+        ('customer rating', process_customer_rating),
+        ('near', process_near),
+        ('food', process_food),
+        ('area', process_area),
+        ('familyFriendly', process_family_friendly)
+    ]
+
+    references = []
+    processed_fields = defaultdict(lambda: [])
+    for row in reader:
+        i1 = row['mr']
+        i2 = row['ref']
+
+        references.append(i2)
+        keywords = i1.split(',')
+        kv = {}
+        for keyword in keywords:
+            kidx = keyword.find('[')
+            key = keyword[:kidx].strip()
+            value = keyword[kidx + 1: keyword.find(']')]
+            kv[key] = value
+
+        for header, funct in headers:
+            val = kv.get(header, None)
+            processed_value = funct(val)
+            processed_fields[header].append(processed_value)
+
+    tok_refenreces = [preprocess_nlg_text(x, name, near) for x, name, near in zip(references, processed_fields['name'], processed_fields['near'])]
+    return tok_refenreces
+
+
 if __name__ == '__main__':
     config_data = json.load(open('configurations/config_vae_nlg.json'))
-    vocab_char_path = join(config_data['vocab_path'], 'vocabulary.pkl')
+    tweets_path = config_data['tweets_path']
 
-    vocab_char = cPickle.load(open(vocab_char_path, 'rb'))
-    tweets_fname = join(config_data['tweets_path'], 'devset_reduced.csv')
-    i, o, m = load_text_gen_data(tweets_fname, config_data, vocab_char, noutputs=2, random_output=True)
-    pass
+    train_texts = get_texts(join(tweets_path, 'trainset.csv'))
+    dev_texts = get_texts(join(tweets_path, 'devset.csv'))
+
+    full_tokens = Counter()
+    sentence_lengths = []
+    for tokens in train_texts + dev_texts:
+        full_tokens.update(tokens)
+        sentence_lengths.append(len(tokens))
+
+    print(len(full_tokens))
+    print(full_tokens.most_common(100))
+    sentence_lengths = np.array(sentence_lengths)
+    print(np.mean(sentence_lengths))
+    print(np.std(sentence_lengths))
+
+    vocabulary = {}
+    for i, (token, freq) in enumerate(full_tokens.items()):
+        vocabulary[token] = (i, freq)
+
+    cPickle.dump(vocabulary, open(join(tweets_path, 'vocab_word.pkl'), 'wb'))
+
+    vocab = {x: i for x, (i, f) in vocabulary.items()}
+    inputs, outputs, lex_dict = load_text_gen_data(join(tweets_path, 'trainset.csv'), config_data, vocab, noutputs=3, random_output=False, word_based=True)
+
+    print('Done')
+
