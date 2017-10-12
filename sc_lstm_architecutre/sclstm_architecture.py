@@ -58,6 +58,7 @@ def vae_model(config_data, vocab, step):
     #MUST BE IMPLEMENTATION 1 or 2
     lstm = SC_LSTM(
         lstm_size,
+        200,
         nclasses,
         generation_only=True,
         condition_on_ptm1=True,

@@ -32,7 +32,7 @@ def vae_model(config_data, vocab, step):
     output_idx = Input(batch_shape=(None, sample_out_size), dtype='int32', name='character_output')
 
     inputs = [name_idx, eat_type_idx, price_range_idx, customer_feedback_idx, near_idx, food_idx, area_idx, family_idx]
-    word_dropout = WordDropout(rate=0.0, dummy_word=dummy_word_idx, anneal_step=step)(output_idx)
+    word_dropout = WordDropout(rate=1.0, dummy_word=dummy_word_idx, anneal_step=step, anneal_start=200, anneal_end=5000)(output_idx)
 
     one_hot_weights = np.identity(nclasses)
 

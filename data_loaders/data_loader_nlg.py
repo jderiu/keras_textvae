@@ -92,7 +92,7 @@ def load_text_gen_data(fname, config_data, vocabulary, noutputs=3, random_output
 
     target_idx = convert2indices(outputs_delex, vocabulary, dummy_word_idx, dummy_word_idx, max_sent_length=max_output_length)
     if random_output:
-        target_idx = np.ones(shape=target_idx.shape)*dummy_word_idx
+        target_idx = np.random.normal(loc=0.0, scale=1.0, size=target_idx.shape)
     inputs.append(target_idx)
 
     outputs = [np.ones(len(inputs[0]))] * noutputs
