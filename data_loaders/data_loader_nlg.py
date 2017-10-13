@@ -6,11 +6,17 @@ import json
 from os.path import join
 import _pickle as cPickle
 
+name_tok = 'SEMNAME'
+near_tok = 'SEMNEAR'
+
 
 def load_text_gen_data(fname, config_data, vocabulary, noutputs=3, random_output=False, word_based=False):
     max_output_length = config_data['max_output_length']
     dummy_word_idx = len(vocabulary)
+    dropout_word_idx = len(vocabulary) + 1
     reader = csv.DictReader(open(fname, encoding='utf-8', mode='rt'))
+    if word_based:
+        vocabulary = {token: idx for token, (idx, freq) in vocabulary.items()}
 
     headers = [
         ('name', process_name),
@@ -55,9 +61,6 @@ def load_text_gen_data(fname, config_data, vocabulary, noutputs=3, random_output
 
     inputs = []
 
-    name_tok = 'X-name'
-    near_tok = 'X-near'
-
     for header, _ in headers:
         values = processed_fields[header]
         if header in ['name', 'near']:
@@ -88,11 +91,12 @@ def load_text_gen_data(fname, config_data, vocabulary, noutputs=3, random_output
             value_idx = np.array(value_idx).astype('float32')
         inputs.append(value_idx)
 
-    outputs_delex = [preprocess_nlg_text(x, name, near, word_based=word_based) for x, name, near in zip(outputs_raw, processed_fields['name'], processed_fields['near'])]
+    outputs_delex = [preprocess_nlg_text(x, name, near, name_tok, near_tok, word_based=word_based) for x, name, near in zip(outputs_raw, processed_fields['name'], processed_fields['near'])]
 
     target_idx = convert2indices(outputs_delex, vocabulary, dummy_word_idx, dummy_word_idx, max_sent_length=max_output_length)
+
     if random_output:
-        target_idx = np.random.normal(loc=0.0, scale=1.0, size=target_idx.shape)
+        target_idx = np.random.normal(loc=0, scale=0.25, size=target_idx.shape)#np.ones_like(target_idx)*dropout_word_idx
     inputs.append(target_idx)
 
     outputs = [np.ones(len(inputs[0]))] * noutputs
@@ -209,7 +213,7 @@ def get_texts(file_path):
             processed_value = funct(val)
             processed_fields[header].append(processed_value)
 
-    tok_refenreces = [preprocess_nlg_text(x, name, near) for x, name, near in zip(references, processed_fields['name'], processed_fields['near'])]
+    tok_refenreces = [preprocess_nlg_text(x, name, near, name_tok, near_tok) for x, name, near in zip(references, processed_fields['name'], processed_fields['near'])]
     return tok_refenreces
 
 
@@ -219,6 +223,7 @@ if __name__ == '__main__':
 
     train_texts = get_texts(join(tweets_path, 'trainset.csv'))
     dev_texts = get_texts(join(tweets_path, 'devset.csv'))
+
 
     full_tokens = Counter()
     sentence_lengths = []
@@ -238,8 +243,8 @@ if __name__ == '__main__':
 
     cPickle.dump(vocabulary, open(join(tweets_path, 'vocab_word.pkl'), 'wb'))
 
-    vocab = {x: i for x, (i, f) in vocabulary.items()}
-    inputs, outputs, lex_dict = load_text_gen_data(join(tweets_path, 'trainset.csv'), config_data, vocab, noutputs=3, random_output=False, word_based=True)
+    vocab = {x: i for x, i in vocabulary.items()}
+    inputs, outputs, lex_dict = load_text_gen_data(join(tweets_path, 'trainset.csv'), config_data, vocabulary, noutputs=3, random_output=False, word_based=True)
 
     print('Done')
 

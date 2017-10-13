@@ -17,24 +17,10 @@ def output_text(model, text_idx, vocab, step='final', delimiter='', fname='loggi
 
 def output_lex_text(model, text_idx, text_lex, vocab, step='final', delimiter='', fname='logging/test_output' ):
     ofile = open('{}_{}.txt'.format(fname, step), 'wt', encoding='utf-8')
-    ofile_beam = open('{}_{}_beam.txt'.format(fname, step), 'wt', encoding='utf-8')
     generated_texts = model.predict(text_idx, batch_size=32)
     inverse_vocab = {v: k for (k, v) in vocab.items()}
 
-    for i in range(len(generated_texts[0])):
-        for gen_texts in generated_texts:
-            text = gen_texts[i]
-            list_txt_idx = [int(x) for x in text.tolist()]
-            txt_list = [inverse_vocab.get(int(x), '') for x in list_txt_idx]
-            oline = delimiter.join(txt_list)
-            for lex_key in text_lex.keys():
-                val = text_lex[lex_key][i]
-                if val:
-                    oline = oline.replace(lex_key, val)
-            ofile_beam.write('{}'.format(oline) + '\n')
-        ofile_beam.write('\n')
-
-    for i, text in enumerate(generated_texts[0]):
+    for i, text in enumerate(generated_texts):
         list_txt_idx = [int(x) for x in text.tolist()]
         txt_list = [inverse_vocab.get(int(x), '') for x in list_txt_idx]
         oline = delimiter.join(txt_list)
@@ -43,6 +29,16 @@ def output_lex_text(model, text_idx, text_lex, vocab, step='final', delimiter=''
             if val:
                 oline = oline.replace(lex_key, val)
         ofile.write('{}'.format(oline) + '\n')
+
+    # for i, text in enumerate(generated_texts[0]):
+    #     list_txt_idx = [int(x) for x in text.tolist()]
+    #     txt_list = [inverse_vocab.get(int(x), '') for x in list_txt_idx]
+    #     oline = delimiter.join(txt_list)
+    #     for lex_key in text_lex.keys():
+    #         val = text_lex[lex_key][i]
+    #         if val:
+    #             oline = oline.replace(lex_key, val)
+    #     ofile.write('{}'.format(oline) + '\n')
     ofile.close()
 
 

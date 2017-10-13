@@ -7,11 +7,12 @@ from keras import regularizers
 from keras import constraints
 from keras.engine import InputSpec
 
-from custom_layers.recurrent import sc_tf_rnn
+from custom_layers.recurrent_tensorflow import sc_tf_rnn
 
 
 class SC_LSTM(Recurrent):
-        def __init__(self, units, in_units, out_units,
+        def __init__(self, units, out_units,
+                     alpha=0.2,
                      return_da=True,
                      generation_only=False,
                      condition_on_ptm1=True,
@@ -39,8 +40,8 @@ class SC_LSTM(Recurrent):
                      **kwargs):
             super(SC_LSTM, self).__init__(**kwargs)
             self.units = units
+            self.alpha = alpha
             self.out_units = out_units
-            self.in_units = in_units
             self.activation = activations.get(activation)
             self.recurrent_activation = activations.get(recurrent_activation)
             self.use_bias = use_bias
@@ -508,7 +509,7 @@ class SC_LSTM(Recurrent):
 
             if self.semantic_condition:
                 d_tm1 = states[2]
-                r = self.recurrent_activation(K.dot(inputs * dp_mask[0], self.kernel_r) + K.dot(h_tm1 * rec_dp_mask[0], self.recurrent_kernel_r))
+                r = self.recurrent_activation(K.dot(inputs * dp_mask[0], self.kernel_r) + self.alpha * K.dot(h_tm1 * rec_dp_mask[0], self.recurrent_kernel_r))
                 if self.use_bias:
                     r = K.bias_add(r, self.bias_r)
                 d = r*d_tm1

@@ -2,7 +2,7 @@ import keras.backend as K
 import numpy as np
 from keras.layers import Lambda, Embedding, Input, concatenate, ZeroPadding1D, TimeDistributed, Dense
 
-from custom_layers.semantically_conditioned_lstm import SC_LSTM
+from custom_layers.semantically_conditioned_lstm import WCLSTM
 from custom_layers.word_dropout import WordDropout
 from custom_layers.ctc_decoding_layer import CTC_Decoding_layer
 from keras.models import Model
@@ -10,12 +10,20 @@ from keras.models import Model
 
 def vae_model(config_data, vocab, step):
     sample_out_size = config_data['max_output_length']
-    nclasses = len(vocab) + 2
+    nclasses = len(vocab) + 3
     #last available index is reserved as start character
     lstm_size = config_data['lstm_size']
-    max_idx = max(vocab.values())
+    max_idx = len(vocab)
     dummy_word_idx = max_idx + 1
+    dropout_word_idx = max_idx + 2
     top_paths = 10
+    embedding_size = 80
+
+    freq_weights = np.ones(shape=(dropout_word_idx, 1))
+    for idx, freq in vocab.values():
+        freq_weights[int(idx)] = freq
+
+    freq_embedding = K.variable(freq_weights, dtype='float32', name='frequency_idx')
 
     l2_regularizer = None
     # == == == == == =
@@ -32,7 +40,7 @@ def vae_model(config_data, vocab, step):
     output_idx = Input(batch_shape=(None, sample_out_size), dtype='int32', name='character_output')
 
     inputs = [name_idx, eat_type_idx, price_range_idx, customer_feedback_idx, near_idx, food_idx, area_idx, family_idx]
-    word_dropout = WordDropout(rate=1.0, dummy_word=dummy_word_idx, anneal_step=step, anneal_start=200, anneal_end=5000)(output_idx)
+    word_dropout = WordDropout(rate=.5, dummy_word=dropout_word_idx, anneal_step=step, anneal_start=5000, anneal_end=10000)(output_idx)
 
     one_hot_weights = np.identity(nclasses)
 
@@ -45,39 +53,39 @@ def vae_model(config_data, vocab, step):
         name='one_hot_out_embeddings'
     )
 
-    output_one_hot_embeddings = one_hot_out_embeddings(word_dropout)
+    output_one_hot_embeddings = one_hot_out_embeddings(output_idx)
 
     distributed_embeddings = Embedding(
         input_length=sample_out_size,
         input_dim=nclasses,
-        output_dim=200,
+        output_dim=embedding_size,
         trainable=True
     )
 
-    output_distributed_embeddings = distributed_embeddings(output_idx)
+    droppouted_distributed_embeddings = distributed_embeddings(word_dropout)
+    embeddings_correct = distributed_embeddings(output_idx)
 
     dialogue_act = concatenate(inputs=inputs)
 
     def remove_last_column(x):
         return x[:, :-1, :]
 
-    padding = ZeroPadding1D(padding=(1, 0))(output_distributed_embeddings)
-    previous_char_slice = Lambda(remove_last_column, output_shape=(sample_out_size, 200))(padding)
+    padding = ZeroPadding1D(padding=(1, 0))(droppouted_distributed_embeddings)
+    previous_char_slice = Lambda(remove_last_column, output_shape=(sample_out_size, embedding_size))(padding)
 
     #combined_input = concatenate(inputs=[softmax_auxiliary, previous_char_slice], axis=2)
     #MUST BE IMPLEMENTATION 1 or 2
-    lstm = SC_LSTM(
+    lstm = WCLSTM(
         lstm_size,
-        200,
-        nclasses,
+        embedding_size,
         return_da=True,
         return_state=False,
         use_bias=True,
         return_sequences=True,
         implementation=2,
-        dropout=0.2,
-        recurrent_dropout=0.2,
-        sc_dropout=0.2
+        dropout=0.5,
+        recurrent_dropout=0.5,
+        sc_dropout=0.5
     )
     recurrent_component, last_da, da_array = lstm([previous_char_slice, dialogue_act])
 
@@ -88,10 +96,20 @@ def vae_model(config_data, vocab, step):
         x_truth, x_decoded_final = args
         x_truth_flatten = K.reshape(x_truth, shape=(-1, K.shape(x_truth)[-1]))
         x_decoded_flat = K.reshape(x_decoded_final, shape=(-1, K.shape(x_decoded_final)[-1]))
+
+        x_decoded_argmax = K.argmax(x_decoded_final, axis=2) #shape bs, sample size
+        x_frequencies = K.squeeze(K.gather(freq_embedding,  K.cast(x_decoded_argmax, 'int32')), axis=2)
+
         cross_ent = K.categorical_crossentropy(x_decoded_flat, x_truth_flatten)
         cross_ent = K.reshape(cross_ent, shape=(-1, K.shape(x_truth)[1]))
+        weighing_sentences = cross_ent*K.log(x_frequencies)
         sum_over_sentences = K.sum(cross_ent, axis=1)
         return sum_over_sentences
+
+    def word_emb_reconstruction_error(args):
+        emb_truth, emb_pred = args
+        mean_squared_differnece = K.mean(K.square(emb_truth - emb_pred), axis=2)
+        return K.sum(mean_squared_differnece)
 
     def da_loss_fun(args):
         da = args[0]
@@ -113,14 +131,15 @@ def vae_model(config_data, vocab, step):
         return K.argmax(softmax_output, axis=2)
 
     argmax = Lambda(argmax_fun, output_shape=(sample_out_size,))(recurrent_decoding)
-    beams = CTC_Decoding_layer(sample_out_size, False, top_paths, 100, dummy_word_idx)(recurrent_decoding)
+    #beams = CTC_Decoding_layer(sample_out_size, False, top_paths, 50, dummy_word_idx)(recurrent_decoding)
 
     main_loss = Lambda(vae_cross_ent_loss, output_shape=(1,), name='main')([output_one_hot_embeddings, recurrent_decoding])
     da_loss = Lambda(da_loss_fun, output_shape=(1,), name='dialogue_act')([last_da])
     da_history_loss = Lambda(da_history_loss_fun, output_shape=(1,), name='dialogue_history')([da_array])
+    word_reconstruction = Lambda(word_emb_reconstruction_error, output_shape=(1,), name='word_reconstruction_history')([embeddings_correct, recurrent_component])
 
-    train_model = Model(inputs=inputs + [output_idx], outputs=[main_loss, da_loss, da_history_loss])
-    test_model = Model(inputs=inputs + [output_idx], outputs=[argmax] + beams)
+    train_model = Model(inputs=inputs + [output_idx], outputs=[main_loss, da_loss, da_history_loss, word_reconstruction])
+    test_model = Model(inputs=inputs + [output_idx], outputs=[argmax])
 
     return train_model, test_model
 

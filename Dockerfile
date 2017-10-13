@@ -73,10 +73,6 @@ RUN pip install --no-cache-dir --upgrade keras
 RUN mkdir /root/.keras/
 RUN touch /root/.keras/keras.json
 
-RUN echo "{"floatx": "float32",\n"epsilon": 1e-07,\n"backend": "theano",\n"image_data_format": "channels_last"}" \
-	> /root/.keras/keras.json
-	
-
 RUN pip install --no-cache-dir --upgrade nltk
 RUN pip install --no-cache-dir --upgrade tqdm
 RUN pip install --no-cache-dir --upgrade gensim

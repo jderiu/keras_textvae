@@ -1,6 +1,6 @@
 {
   "max_sentence_length": 128,
-  "max_output_length": 128,
+  "max_output_length": 40,
   "z_size": 50,
   "nclasses": 51,
   "lstm_size": 1024,
@@ -17,7 +17,7 @@
   "nb_filter": 200,
   "filter_length": 3,
   "softmax_beta": 10,
-  "batch_size": 512,
+  "batch_size": 256,
   "standard_deviation": 0.01,
   "nb_epochs": 1,
   "patience" : 10,

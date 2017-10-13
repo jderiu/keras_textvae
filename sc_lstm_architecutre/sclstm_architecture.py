@@ -9,11 +9,12 @@ from keras.models import Model
 
 def vae_model(config_data, vocab, step):
     sample_out_size = config_data['max_output_length']
-    nclasses = len(vocab) + 2
+    nclasses = len(vocab) + 3
     #last available index is reserved as start character
     lstm_size = config_data['lstm_size']
     max_idx = max(vocab.values())
     dummy_word_idx = max_idx + 1
+    dropout_word_idx = max_idx + 1
     top_paths = 10
 
     l2_regularizer = None
@@ -31,7 +32,7 @@ def vae_model(config_data, vocab, step):
     output_idx = Input(batch_shape=(None, sample_out_size), dtype='int32', name='character_output')
 
     inputs = [name_idx, eat_type_idx, price_range_idx, customer_feedback_idx, near_idx, food_idx, area_idx, family_idx]
-    word_dropout = WordDropout(rate=0.0, dummy_word=dummy_word_idx, anneal_step=step)(output_idx)
+    word_dropout = WordDropout(rate=1.0, dummy_word=dropout_word_idx, anneal_step=step)(output_idx)
 
     one_hot_weights = np.identity(nclasses)
 
@@ -58,7 +59,6 @@ def vae_model(config_data, vocab, step):
     #MUST BE IMPLEMENTATION 1 or 2
     lstm = SC_LSTM(
         lstm_size,
-        200,
         nclasses,
         generation_only=True,
         condition_on_ptm1=True,

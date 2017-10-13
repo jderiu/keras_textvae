@@ -5,9 +5,7 @@ from nltk.tokenize import TweetTokenizer, WordPunctTokenizer
 import re
 
 
-def preprocess_nlg_text(text, name, near, word_based=True):
-    name_tok = 'XNAME'
-    near_tok = 'XNEAR'
+def preprocess_nlg_text(text, name, near, name_tok, near_tok, word_based=True):
 
     text = text.replace('\n', '').replace('\r', '').replace('\t', ' ')
 

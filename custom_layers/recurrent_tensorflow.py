@@ -43,9 +43,7 @@ def sc_tf_rnn(
         semantic_conditioning=True,
         go_backwards=False,
         mask=None,
-        constants=None,
-        unroll=False,
-        input_length=None
+        constants=None
 ):
     ndim = len(inputs.get_shape())
     if ndim < 3:
@@ -170,6 +168,7 @@ def sc_tf_rnn(
         return last_output, outputs, last_da, da_outputs, new_states
     else:
         return last_output, outputs, new_states
+
 
 def ctc_decode(y_pred, input_length, greedy=True, beam_width=100,
                top_paths=1):

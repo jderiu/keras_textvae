@@ -7,11 +7,11 @@ from keras import regularizers
 from keras import constraints
 from keras.engine import InputSpec
 
-from custom_layers.recurrent import sc_tf_rnn
+from custom_layers.recurrent_tensorflow import sc_tf_rnn
 
 
-class SC_LSTM(Recurrent):
-        def __init__(self, units, in_units, out_units,
+class WCLSTM(Recurrent):
+        def __init__(self, units, out_units,
                      return_da=True,
                      activation='tanh',
                      recurrent_activation='hard_sigmoid',
@@ -34,10 +34,9 @@ class SC_LSTM(Recurrent):
                      recurrent_dropout=0.,
                      sc_dropout=0.,
                      **kwargs):
-            super(SC_LSTM, self).__init__(**kwargs)
+            super(WCLSTM, self).__init__(**kwargs)
             self.units = units
             self.out_units = out_units
-            self.in_units = in_units
             self.activation = activations.get(activation)
             self.recurrent_activation = activations.get(recurrent_activation)
             self.use_bias = use_bias
@@ -131,6 +130,12 @@ class SC_LSTM(Recurrent):
                 constraint=self.kernel_constraint
             )
 
+            self.out_kernel = self.add_weight(shape=(self.units, self.out_units),
+                                              name='out_kernel',
+                                              initializer=self.out_kernel_initializer,
+                                              regularizer=self.out_kernel_regularizer,
+                                              constraint=self.out_kernel_constraint)
+
             if self.use_bias:
                 if self.unit_forget_bias:
                     def bias_initializer(shape, *args, **kwargs):
@@ -191,9 +196,9 @@ class SC_LSTM(Recurrent):
                 input_shape = input_shape[0]
 
             if self.return_sequences:
-                output_shape = (input_shape[0], input_shape[1], self.units)
+                output_shape = (input_shape[0], input_shape[1], self.out_units)
             else:
-                output_shape = (input_shape[0], self.units)
+                output_shape = (input_shape[0], self.out_units)
 
             if self.return_state:
                 state_shape = [(input_shape[0], self.units) for _ in self.states]
@@ -277,6 +282,14 @@ class SC_LSTM(Recurrent):
             initial_state = [initial_state for _ in range(len(self.states))]
             return initial_state
 
+        def get_initial_p(self, inputs):
+            # build an all-zero tensor of shape (samples, output_dim)
+            p_0 = K.zeros_like(inputs)  # (samples, timesteps, input_dim)
+            p_0 = K.sum(p_0, axis=(1, 2))  # (samples,)
+            p_0 = K.expand_dims(p_0)  # (samples, 1)
+            p_0 = K.tile(p_0, [1, self.out_units])  # (samples, output_dim)
+            return p_0
+
         def inference_phase(self):
             self.train_phase = False
 
@@ -339,6 +352,9 @@ class SC_LSTM(Recurrent):
             sc_constants = self.get_sc_constants(dialogue_act, training=None)
             constants = constants + sc_constants
 
+            ptm1 = self.get_initial_p(inputs[0])
+            initial_state = initial_state + [ptm1]
+
             if isinstance(mask, list):
                 mask = mask[0]
 
@@ -350,9 +366,7 @@ class SC_LSTM(Recurrent):
                 semantic_conditioning=True,
                 go_backwards=self.go_backwards,
                 mask=mask,
-                constants=constants,
-                unroll=self.unroll,
-                input_length=input_length)
+                constants=constants)
 
             last_output, outputs, last_da, da_outputs, states = rnn_output
 
@@ -381,9 +395,12 @@ class SC_LSTM(Recurrent):
             h_tm1 = states[0]
             c_tm1 = states[1]
             d_tm1 = states[2]
-            dp_mask = states[3]
-            rec_dp_mask = states[4]
-            sc_dp_mask = states[5]
+            p_tm1 = states[3]
+            dp_mask = states[4]
+            rec_dp_mask = states[5]
+            sc_dp_mask = states[6]
+
+            inputs = K.in_train_phase(inputs, p_tm1)
 
             z = K.dot(inputs * dp_mask[0], self.kernel)
             z += K.dot(h_tm1 * rec_dp_mask[0], self.recurrent_kernel)
@@ -408,10 +425,12 @@ class SC_LSTM(Recurrent):
 
             h = o * self.activation(c)
 
+            p_out = K.tanh(K.dot(h, self.out_kernel))
+
             if 0.0 < self.dropout + self.recurrent_dropout + self.sc_dropout:
                 h._uses_learning_phase = True
 
-            return h, [h, c, d]
+            return p_out, [h, c, d, p_out]
 
         def get_config(self):
             config = {'units': self.units,
@@ -432,5 +451,5 @@ class SC_LSTM(Recurrent):
                       'dropout': self.dropout,
                       'recurrent_dropout': self.recurrent_dropout,
                       'sc_dropout': self.sc_dropout}
-            base_config = super(SC_LSTM, self).get_config()
+            base_config = super(WCLSTM, self).get_config()
             return dict(list(base_config.items()) + list(config.items()))
