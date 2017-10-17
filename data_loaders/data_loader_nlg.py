@@ -11,7 +11,7 @@ near_tok = 'SEMNEAR'
 
 
 def load_text_gen_data(fname, config_data, vocabulary, noutputs=3, random_output=False, word_based=False):
-    max_output_length = config_data['max_output_length']
+    max_output_length = config_data['max_sentence_len']
     dummy_word_idx = len(vocabulary)
     dropout_word_idx = len(vocabulary) + 1
     reader = csv.DictReader(open(fname, encoding='utf-8', mode='rt'))
@@ -224,12 +224,14 @@ if __name__ == '__main__':
     train_texts = get_texts(join(tweets_path, 'trainset.csv'))
     dev_texts = get_texts(join(tweets_path, 'devset.csv'))
 
+    otextfile = open(join(tweets_path, 'full_texts.txt'), 'wt', encoding='utf-8')
 
     full_tokens = Counter()
     sentence_lengths = []
     for tokens in train_texts + dev_texts:
         full_tokens.update(tokens)
         sentence_lengths.append(len(tokens))
+        otextfile.write(' '.join(tokens) + '\n')
 
     print(len(full_tokens))
     print(full_tokens.most_common(100))
@@ -244,7 +246,6 @@ if __name__ == '__main__':
     cPickle.dump(vocabulary, open(join(tweets_path, 'vocab_word.pkl'), 'wb'))
 
     vocab = {x: i for x, i in vocabulary.items()}
-    inputs, outputs, lex_dict = load_text_gen_data(join(tweets_path, 'trainset.csv'), config_data, vocabulary, noutputs=3, random_output=False, word_based=True)
 
     print('Done')
 

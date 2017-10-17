@@ -63,7 +63,7 @@ def main(args):
         #== == == == == == =
 
         delimiter = ' '
-        noutputs = 4
+        noutputs = 5
 
         logging.info('Load Training Data')
         train_input, train_output, train_lex = load_text_gen_data(join(tweets_path, 'trainset.csv'),   config_data, vocab, noutputs, word_based=True)

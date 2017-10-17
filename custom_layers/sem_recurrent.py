@@ -13,6 +13,7 @@ from custom_layers.recurrent_tensorflow import sc_tf_rnn
 class SC_LSTM(Recurrent):
         def __init__(self, units, out_units,
                      alpha=0.2,
+                     softmax_temperature = None,
                      return_da=True,
                      generation_only=False,
                      condition_on_ptm1=True,
@@ -48,6 +49,7 @@ class SC_LSTM(Recurrent):
             self.semantic_condition = semantic_condition
             self.generation_only = generation_only
             self.return_da = return_da
+            self.softmax_temperature = softmax_temperature
 
             #different behaviour while training than from inefrence time
             self.train_phase = True
@@ -65,6 +67,8 @@ class SC_LSTM(Recurrent):
             elif not self.generation_only and not self.semantic_condition and not self.condition_on_ptm1:
                 #takes aux input for train and testing (vanille lstm)
                 self.input_spec = [InputSpec(ndim=3)]
+            elif not self.generation_only and not self.condition_on_ptm1 and self.semantic_condition:
+                self.input_spec = [InputSpec(ndim=3), InputSpec(ndim=2)]
             else:
                 self.input_spec = [InputSpec(ndim=3), InputSpec(ndim=3)]
 
@@ -92,9 +96,12 @@ class SC_LSTM(Recurrent):
                                InputSpec(shape=(None, self.units))]
 
         def build(self, input_shape):
-            assert isinstance(input_shape, list)
+            assert isinstance(input_shape, list) or isinstance(input_shape, tuple)
 
-            main_input_shape = input_shape[0]
+            if isinstance(input_shape, tuple):
+                main_input_shape = input_shape
+            else:
+                main_input_shape = input_shape[0]
             batch_size = main_input_shape[0] if self.stateful else None
 
             if self.semantic_condition and self.condition_on_ptm1 and self.generation_only:
@@ -111,7 +118,8 @@ class SC_LSTM(Recurrent):
                 self.input_dim = 2*main_input_shape[2]
             elif not self.generation_only and not self.semantic_condition and not self.condition_on_ptm1:
                 #takes aux input for train and testing (vanille lstm)
-                assert len(input_shape) == 1
+                self.input_dim = main_input_shape[2]
+            elif not self.generation_only and not self.semantic_condition and self.condition_on_ptm1:
                 self.input_dim = main_input_shape[2]
             else:
                 assert len(input_shape) == 2
@@ -389,29 +397,19 @@ class SC_LSTM(Recurrent):
                 constants = self.get_constants(inputs, training=None)
             elif not self.generation_only and self.semantic_condition and self.condition_on_ptm1:
                 #takes the aux the orig input -1 and the dialogue act while training, while testing the o-1 is replaced by ptm1
-                if not self.train_phase and self.condition_on_ptm1:
-                    aux_inputs = concatenate(inputs=input_list[:2])
-                    initial_state = self.get_initial_state(aux_inputs)
-                    constants = self.get_constants(aux_inputs, training=None)
-                    inputs = input_list[0]
-                else:
-                    inputs = concatenate(inputs=input_list[:2])
-                    initial_state = self.get_initial_state(inputs)
-                    constants = self.get_constants(inputs, training=None)
+                aux_inputs = concatenate(inputs=input_list[:2])
+                initial_state = self.get_initial_state(aux_inputs)
+                constants = self.get_constants(aux_inputs, training=None)
+                inputs = K.in_train_phase(aux_inputs, input_list[0])
             elif not self.generation_only and not self.semantic_condition and self.condition_on_ptm1:
                 # takes the aux the orig input -1 and the dialogue act while training, while testing the o-1 is replaced by ptm1
-                if not self.train_phase and self.condition_on_ptm1:
-                    aux_inputs = concatenate(inputs=input_list[:2])
-                    initial_state = self.get_initial_state(aux_inputs)
-                    constants = self.get_constants(aux_inputs, training=None)
-                    inputs = input_list[0]
-                else:
-                    inputs = concatenate(inputs=input_list[:2])
-                    initial_state = self.get_initial_state(inputs)
-                    constants = self.get_constants(inputs, training=None)
+                aux_inputs = concatenate(inputs=input_list[:2])
+                initial_state = self.get_initial_state(aux_inputs)
+                constants = self.get_constants(aux_inputs, training=None)
+                inputs = K.in_train_phase(aux_inputs, input_list[0])
             elif not self.generation_only and not self.semantic_condition and not self.condition_on_ptm1:
                 #takes aux input for train and testing (vanilla lstm)
-                inputs = input_list[0]
+                inputs = input_list
                 initial_state = self.get_initial_state(inputs)
                 constants = self.get_constants(inputs, training=None)
             else:
@@ -440,9 +438,7 @@ class SC_LSTM(Recurrent):
                 semantic_conditioning=self.semantic_condition,
                 go_backwards=self.go_backwards,
                 mask=mask,
-                constants=constants,
-                unroll=self.unroll,
-                input_length=input_length)
+                constants=constants)
 
             if self.semantic_condition:
                 last_output, outputs, last_da, da_outputs, states = rnn_output
@@ -473,26 +469,38 @@ class SC_LSTM(Recurrent):
 
         def step(self, inputs, states):
 
-            if self.semantic_condition:
+            if self.semantic_condition and self.condition_on_ptm1:
                 h_tm1 = states[0]
                 c_tm1 = states[1]
-                if not self.train_phase and self.condition_on_ptm1 and not self.generation_only:
-                    p_tm1 = states[3]
-                    inputs = K.concatenate([inputs, p_tm1], axis=1)
-                elif not self.train_phase and self.condition_on_ptm1 and self.generation_only:
-                    p_tm1 = states[3]
-                    inputs = p_tm1
+                d_tm1 = states[2]
+                p_tm1 = states[3]
+                if self.condition_on_ptm1 and not self.generation_only:
+                    inputs = K.in_train_phase(inputs, K.concatenate([inputs, p_tm1], axis=1))
+                elif self.condition_on_ptm1 and self.generation_only:
+                    inputs = K.in_train_phase(inputs, p_tm1)
                 dp_mask = states[4]
                 rec_dp_mask = states[5]
                 sc_dp_mask = states[6]
-            else:
+            elif not self.semantic_condition and self.condition_on_ptm1:
                 h_tm1 = states[0]
                 c_tm1 = states[1]
-                if not self.train_phase and self.condition_on_ptm1:
-                    p_tm1 = states[2]
-                    inputs = K.concatenate([inputs, p_tm1], axis=1)
+                p_tm1 = states[2]
+                if self.condition_on_ptm1:
+                    inputs = K.in_train_phase(inputs, K.concatenate([inputs, p_tm1], axis=1))
                 dp_mask = states[3]
                 rec_dp_mask = states[4]
+            elif not self.semantic_condition and not self.condition_on_ptm1:
+                h_tm1 = states[0]
+                c_tm1 = states[1]
+                dp_mask = states[2]
+                rec_dp_mask = states[3]
+            else: #self.semantic_condition and not self.condition_pm1
+                h_tm1 = states[0]
+                c_tm1 = states[1]
+                d_tm1 = states[2]
+                dp_mask = states[3]
+                rec_dp_mask = states[4]
+                sc_dp_mask = states[5]
 
             z = K.dot(inputs * dp_mask[0], self.kernel)
             z += K.dot(h_tm1 * rec_dp_mask[0], self.recurrent_kernel)
@@ -508,7 +516,6 @@ class SC_LSTM(Recurrent):
             f = self.recurrent_activation(z1)
 
             if self.semantic_condition:
-                d_tm1 = states[2]
                 r = self.recurrent_activation(K.dot(inputs * dp_mask[0], self.kernel_r) + self.alpha * K.dot(h_tm1 * rec_dp_mask[0], self.recurrent_kernel_r))
                 if self.use_bias:
                     r = K.bias_add(r, self.bias_r)
@@ -522,25 +529,24 @@ class SC_LSTM(Recurrent):
             h = o * self.activation(c)
 
             #output distibution of target word prob: p in (batch_size, nclasses)
-            p_softmax = K.softmax(K.dot(h, self.out_kernel))
-
-            if not self.train_phase and self.condition_on_ptm1:
-                lables = K.argmax(p_softmax, axis=1)
-                p_one_hot = K.one_hot(lables, self.out_units)
+            if self.softmax_temperature is not None:
+                p_softmax = K.softmax(K.dot(h, self.out_kernel)/self.softmax_temperature)
+                p_ret = p_softmax
+            else:
+                p_softmax = K.softmax(K.dot(h, self.out_kernel))
+                p_ret = K.in_train_phase(p_softmax, K.one_hot(K.argmax(p_softmax, axis=1), self.out_units))
 
             if 0.0 < self.dropout + self.recurrent_dropout + self.sc_dropout:
                 h._uses_learning_phase = True
 
-            if self.semantic_condition:
-                if self.train_phase:
-                    return p_softmax, [h, c, d, p_softmax]
-                else:
-                    return p_softmax, [h, c, d, p_one_hot]
+            if self.semantic_condition and self.condition_on_ptm1:
+                return p_softmax, [h, c, d, p_ret]
+            elif not self.semantic_condition and self.condition_on_ptm1:
+                return p_softmax, [h, c, p_ret]
+            elif not self.semantic_condition and not self.condition_on_ptm1:
+                return p_softmax, [h, c]
             else:
-                if self.train_phase:
-                    return p_softmax, [h, c, p_softmax]
-                else:
-                    return p_softmax, [h,c,p_one_hot]
+                return p_softmax, [h, c, d]
 
         def get_config(self):
             config = {'units': self.units,

@@ -2,7 +2,6 @@ from keras.models import Layer
 import keras.backend as K
 import tensorflow as tf
 import numpy as np
-from theano.sandbox.rng_mrg import MRG_RandomStreams as RandomStreams
 
 
 class WordDropout(Layer):
@@ -22,7 +21,6 @@ class WordDropout(Layer):
         """
     def __init__(self, rate, dummy_word, anneal_step=1.0, anneal_start=0, anneal_end=1000, noise_shape=None, seed=None, **kwargs):
         super(WordDropout, self).__init__(**kwargs)
-        self.srng = RandomStreams(seed=np.random.randint(1000000))
         self.p = min(1., max(0., rate))
         self.dummy_word = dummy_word
         self.noise_shape = noise_shape

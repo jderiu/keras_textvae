@@ -98,6 +98,7 @@ COPY main_hybrid_gan.py /DLFramework
 COPY main_cornell.py /DLFramework
 COPY main_gan_cornell.py /DLFramework
 COPY main_nlg_sclstm.py /DLFramework
+COPY main_nlg_scvae.py /DLFramework
 
 WORKDIR /DLFramework
 

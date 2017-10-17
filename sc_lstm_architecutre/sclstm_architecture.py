@@ -110,14 +110,14 @@ def vae_model(config_data, vocab, step):
         return K.argmax(softmax_output, axis=2)
 
     argmax = Lambda(argmax_fun, output_shape=(sample_out_size,))(output_gen_layer)
-    beams = CTC_Decoding_layer(sample_out_size, False, top_paths, 100, dummy_word_idx)(output_gen_layer)
+    #beams = CTC_Decoding_layer(sample_out_size, False, top_paths, 100, dummy_word_idx)(output_gen_layer)
 
     main_loss = Lambda(vae_cross_ent_loss, output_shape=(1,), name='main')([output_one_hot_embeddings, recurrent_component])
     da_loss = Lambda(da_loss_fun, output_shape=(1,), name='dialogue_act')([last_da])
     da_history_loss = Lambda(da_history_loss_fun, output_shape=(1,), name='dialogue_history')([da_array])
 
     train_model = Model(inputs=inputs + [output_idx], outputs=[main_loss, da_loss, da_history_loss])
-    test_model = Model(inputs=inputs + [output_idx], outputs=[argmax] + beams)
+    test_model = Model(inputs=inputs + [output_idx], outputs=argmax)
 
     return train_model, test_model
 
