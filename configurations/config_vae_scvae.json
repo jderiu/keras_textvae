@@ -4,7 +4,7 @@
   "nclasses": 51,
   "discriminator_iterations": 2,
   "word_dropout_rate": 0.5,
-  "lstm_size": 1024,
+  "lstm_size": 512,
   "intermediate_dim": 200,
   "tweets_path": "en_full",
   "vocab_path": "en_full",

@@ -16,11 +16,11 @@ np.random.seed(1337)
 import keras.backend as K
 
 
-from keras.callbacks import ModelCheckpoint, BaseLogger, ProgbarLogger, CallbackList
+from keras.callbacks import ModelCheckpoint, BaseLogger, ProgbarLogger, CallbackList, TensorBoard
 from data_loaders.data_loader_nlg import load_text_gen_data
 from vae_gan_architectures.sc_vae import get_vae_gan_model
 import time
-from custom_callbacks import StepCallback, GANOutputCallback, TerminateOnNaN
+from custom_callbacks import StepCallback, GANOutputCallback, TerminateOnNaN, LexOutputCallback
 from keras_fit_utils.utils import _make_batches, _batch_shuffle, _slice_arrays
 
 
@@ -95,7 +95,7 @@ def main(args):
         #== == == == == == =
         # Load all the Data
         #== == == == == == =
-
+        delimiter = ''
         noutputs = 12
 
         logging.info('Load Training Data')
@@ -105,12 +105,7 @@ def main(args):
         logging.info('Load Output Validation Data')
         valid_dev_input, valid_dev_output, valid_dev_lex = load_text_gen_data(join(tweets_path, 'devset_reduced.csv'), config_data, vocab, noutputs, random_output=False, word_based=False)
 
-        #train_input = [x[:1213] for x in train_input]
-        #train_output = [x[:1213] for x in train_output]
-
-        noise_valid_input = np.zeros(shape=(valid_input[0].shape[0], config_data['z_size']))
-
-        step = K.variable(1.)
+        step = K.variable(1., name='step_varialbe')
         steps_per_epoch = ceil(train_output[0].shape[0] / config_data['batch_size'])
         # == == == == == == == == == == =
         # Define and load the CNN model
@@ -137,6 +132,21 @@ def main(args):
             discriminator_model.summary(print_fn=lambda x: fh.write(x + '\n'))
 
         terminate_on_nan = TerminateOnNaN()
+        output_callback = LexOutputCallback(vae_vanilla_test_model, valid_dev_input, valid_dev_lex, 1, vocab, delimiter, fname='{}/test_output'.format(log_path))
+        #output_callback_full = LexOutputCallback(vae_vanilla_test_model, valid_dev_input, valid_dev_lex, 1, vocab, delimiter, fname='{}/test_output'.format(log_path))
+        vae_vanilla_train_model.fit(
+            x=train_input,
+            y=train_output[:3],
+            epochs=10,
+            batch_size=batch_size,
+            validation_data=(valid_input, valid_output[:3]),
+            callbacks=[
+                output_callback,
+                terminate_on_nan
+            ]
+        )
+
+        terminate_on_nan = TerminateOnNaN()
         model_checkpoint = ModelCheckpoint('models/vae_model/weights.{epoch:02d}.hdf5', period=10, save_weights_only=True)
 
         out_labels = ['enc_' + s for s in vae_model_train._get_deduped_metrics_names()]
@@ -144,11 +154,13 @@ def main(args):
 
         callback_metrics = out_labels + ['val_' + n for n in out_labels]
 
+        tensorboard = TensorBoard(log_dir='logging/tensorboard', histogram_freq=0, write_grads=True, write_images=True)
         step_callback = StepCallback(step, steps_per_epoch)
-        output_callback = GANOutputCallback(vae_model_train, valid_dev_input, 1, vocab, '', fname='{}/test_output'.format(log_path))
-        callbacks = CallbackList([BaseLogger(), ProgbarLogger(count_mode='steps'), step_callback, output_callback, model_checkpoint, terminate_on_nan])
+        output_callback = LexOutputCallback(vae_vanilla_test_model, valid_dev_input, valid_dev_lex, 1, vocab, delimiter, fname='{}/test_output'.format(log_path))
+        output_callback_full = LexOutputCallback(vae_vanilla_test_model, valid_input, valid_lex, 5, vocab, delimiter, fname='{}/test_valid_output'.format(log_path))
+        callbacks = CallbackList([BaseLogger(), ProgbarLogger(count_mode='steps'), step_callback, tensorboard, output_callback, output_callback_full, model_checkpoint, terminate_on_nan])
 
-        callbacks.set_model(vae_model_test)
+        callbacks.set_model(vae_model_train)
         callbacks.set_params({
             'batch_size': batch_size,
             'epochs': epochs,
@@ -184,7 +196,7 @@ def main(args):
                 callbacks.on_batch_begin(batch_index, batch_logs)
 
                 set_trainability(discriminator, trainable=False)
-                enc_outs = vae_model_train.train_on_batch(x=X, y=y[:12])
+                enc_outs = vae_model_train.train_on_batch(x=X, y=y)
 
                 set_trainability(discriminator, trainable=True)
                 list_disc_loss_real = []
@@ -218,7 +230,7 @@ def main(args):
                 # Epoch finished.
                 if steps_done >= steps_per_epoch:
                     valid_len = valid_output[0].shape[0]
-                    enc_val_outs = vae_model_train.evaluate(valid_input, valid_output[:12], verbose=False)
+                    enc_val_outs = vae_model_train.evaluate(valid_input, valid_output, verbose=False)
                     dis_val_outs = discriminator_model.evaluate(valid_input[-1], valid_input[:8], verbose=False)
 
                     val_outs = enc_val_outs + dis_val_outs

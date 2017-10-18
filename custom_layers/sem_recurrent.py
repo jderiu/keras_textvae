@@ -13,7 +13,7 @@ from custom_layers.recurrent_tensorflow import sc_tf_rnn
 class SC_LSTM(Recurrent):
         def __init__(self, units, out_units,
                      alpha=0.2,
-                     softmax_temperature = None,
+                     softmax_temperature=None,
                      return_da=True,
                      generation_only=False,
                      condition_on_ptm1=True,

@@ -1,9 +1,9 @@
 {
-  "max_sentence_length": 128,
+  "max_sentence_len": 128,
   "max_output_length": 128,
   "z_size": 50,
   "nclasses": 51,
-  "lstm_size": 1024,
+  "lstm_size": 128,
   "intermediate_dim": 200,
   "tweets_path": "en_full",
   "vocab_path": "en_full",

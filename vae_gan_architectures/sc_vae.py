@@ -1,6 +1,6 @@
 import keras.backend as K
 import numpy as np
-from keras.layers import  Lambda, Conv1D, Embedding, Input, BatchNormalization, Activation, Flatten, Dense, GlobalMaxPooling1D, PReLU, Reshape, Conv2DTranspose, concatenate, GaussianNoise
+from keras.layers import  Lambda, Conv1D, Embedding, Input, BatchNormalization, Activation, Flatten, Dense, GlobalMaxPooling1D, PReLU, Reshape, Conv2DTranspose, concatenate, ZeroPadding1D
 from custom_layers.sampling_layer import Sampling
 from custom_layers.sem_recurrent import SC_LSTM
 from custom_layers.word_dropout import WordDropout
@@ -84,6 +84,12 @@ def get_decoder(decoder_input, nclasses, nfilter, sample_out_size, out_size, int
     def temperature_log(logits):
         return logits/temperature
 
+    def remove_last_column(x):
+        return x[:, :-1, :]
+
+    padding = ZeroPadding1D(padding=(1, 0))(text_one_hot)
+    previous_char_slice = Lambda(remove_last_column, output_shape=(sample_out_size, nclasses))(padding)
+
     temp_layer = Lambda(temperature_log, output_shape=(sample_out_size, nclasses))(logits)
     softmax_auxiliary = Activation('softmax')(temp_layer)
 
@@ -104,11 +110,11 @@ def get_decoder(decoder_input, nclasses, nfilter, sample_out_size, out_size, int
         sc_dropout=0.2
     )
 
-    recurrent_component = lstm([softmax_auxiliary, text_one_hot, dialogue_act])
-    output_gen_layer = lstm([softmax_auxiliary, softmax_auxiliary, dialogue_act])  # for testing
+    recurrent_component = lstm([softmax_auxiliary, previous_char_slice, dialogue_act])
+    #output_gen_layer = lstm([softmax_auxiliary, softmax_auxiliary])  # for testing
 
     decoder_train = Model(inputs=[decoder_input, text_idx] + inputs, outputs=[recurrent_component, softmax_auxiliary], name='decoder_{}'.format('train'))
-    decoder_test = Model(inputs=[decoder_input] + inputs, outputs=output_gen_layer, name='decoder_{}'.format('train'))
+    decoder_test = Model(inputs=[decoder_input, text_idx] + inputs, outputs=recurrent_component, name='decoder_{}'.format('test'))
     #decoder_train.summary()
     return decoder_train, decoder_test
 
@@ -140,7 +146,7 @@ def get_descriminator(g_in, targets, nfilter, intermediate_dim):
         #discr_loss = Lambda(cross_ent_loss, output_shape=(1,), name='loss_{}'.format(name))([sigmoid, target])
         #discr_losses.append(discr_loss)
 
-    discriminator = Model(inputs=g_in, outputs=discr_losses)
+    discriminator = Model(inputs=g_in, outputs=discr_losses, name='discriminator')
     return discriminator
 
 
@@ -203,7 +209,8 @@ def get_vae_gan_model(config_data, vocab_char, step):
     )
     text_one_hot = one_hot_embeddings(text_idx)
 
-    #dropped_output_idx = WordDropout(rate=word_dropout_rate, dummy_word=dropout_word_idx)(text_idx)
+    dropped_output_idx = WordDropout(rate=1.0, dummy_word=dropout_word_idx, anneal_step=step, anneal_start=anneal_start, anneal_end=anneal_end)(text_idx)
+    dropped_one_hot = one_hot_embeddings(dropped_output_idx)
 
     # == == == == == =
     # Define Encoder
@@ -215,7 +222,7 @@ def get_vae_gan_model(config_data, vocab_char, step):
     # Define Decoder
     # == == == == == =
     decoder_input = Input(shape=(z_size + da_size,), name='decoder_input')
-    decoder_train, decoder_test = get_decoder(decoder_input, nclasses, nfilter, sample_in_size, out_size, intermediate_dim, lstm_size, text_idx, text_one_hot, dialogue_act, inputs, step)
+    decoder_train, decoder_test = get_decoder(decoder_input, nclasses, nfilter, sample_in_size, out_size, intermediate_dim, lstm_size, text_idx, dropped_one_hot, dialogue_act, inputs, step)
 
     # == == == == == == == =
     # Define Discriminators
@@ -258,6 +265,22 @@ def get_vae_gan_model(config_data, vocab_char, step):
         y_pred, y_true = args
         return K.categorical_crossentropy(y_pred, y_true)
 
+    def da_loss_fun(args):
+        da = args[0]
+        sq_da_t = K.square(da)
+        sum_sq_da_T = K.sum(sq_da_t, axis=1)
+        return sum_sq_da_T
+
+    def da_history_loss_fun(args):
+        da_t = args[0]
+        zeta = 10e-4
+        n = 100
+        #shape: batch_size, sample_size
+        norm_of_differnece = K.sum(K.square(da_t), axis=2)
+        n1 = zeta**norm_of_differnece
+        n2 = n*n1
+        return K.sum(n2, axis=1)
+
     z_prior, z_mean, z_sigmoid = encoder(text_idx)
     latent_var = concatenate(inputs=[z_prior, dialogue_act], axis=1)
     x_p, x_aux = decoder_train([latent_var, text_idx] + inputs)
@@ -269,13 +292,15 @@ def get_vae_gan_model(config_data, vocab_char, step):
         discr_loss = Lambda(cross_ent_loss, output_shape=(1,), name='{}'.format(name))([dloss, target])
         discr_losses.append(discr_loss)
 
-    x_argmax = decoder_test([latent_var] + inputs)
+    x_argmax = decoder_test([latent_var, text_idx] + inputs)
 
     #vae_loss
     main_loss = Lambda(vae_cross_ent_loss, output_shape=(1,), name='main')([text_one_hot, x_p])
     kld_loss = Lambda(vae_kld_loss, output_shape=(1,), name='kld')([z_mean, z_sigmoid])
     aux_loss = Lambda(vae_aux_loss, output_shape=(1,), name='auxiliary')([text_one_hot, x_aux])
     encoding_discrimination_loss = Lambda(enc_discr_dist, output_shape=(1,), name='z')([z_mean, z_pred_prior])
+    #da_loss = Lambda(da_loss_fun, output_shape=(1,), name='dialogue_act')([da_act_t])
+    #da_history_loss = Lambda(da_history_loss_fun, output_shape=(1,), name='dialogue_history')([da_act_history])
     argmax = Lambda(argmax_fun, output_shape=(sample_in_size,))(x_argmax)
 
     vae_vanilla_train_model = Model(inputs=inputs + [text_idx], outputs=[main_loss, kld_loss, aux_loss])#for pretraining
@@ -284,7 +309,7 @@ def get_vae_gan_model(config_data, vocab_char, step):
     vae_model_test = Model(inputs=inputs + [text_idx], outputs=argmax)
 
     #discriminator_training
-    optimizer_ada = Adadelta(lr=1.0, epsilon=1e-8, rho=0.95, decay=0.0001, clipnorm=10)
+    optimizer_ada = Adadelta(lr=1.0, epsilon=1e-8, rho=0.95, decay=0.0001)
 
     discr_train_losses = discriminator(text_one_hot)
     discriminator_model = Model(inputs=text_idx, outputs=discr_train_losses)
