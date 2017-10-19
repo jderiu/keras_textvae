@@ -18,6 +18,7 @@ import keras.backend as K
 
 from keras.callbacks import ModelCheckpoint, BaseLogger, ProgbarLogger, CallbackList, TensorBoard
 from data_loaders.data_loader_nlg import load_text_gen_data
+from data_loaders.data_loader_charlevel import generate_data_stream
 from vae_gan_architectures.sc_vae import get_vae_gan_model
 import time
 from custom_callbacks import StepCallback, GANOutputCallback, TerminateOnNaN, LexOutputCallback
@@ -96,14 +97,14 @@ def main(args):
         # Load all the Data
         #== == == == == == =
         delimiter = ''
-        noutputs = 12
+        noutputs = 11
 
         logging.info('Load Training Data')
-        train_input, train_output, train_lex = load_text_gen_data(join(tweets_path, 'trainset.csv'), config_data, vocab,noutputs, word_based=False)
+        train_input, train_output, train_weights, train_lex = load_text_gen_data(join(tweets_path, 'trainset.csv'), config_data, vocab,noutputs, word_based=False)
         logging.info('Load Validation Data')
-        valid_input, valid_output, valid_lex = load_text_gen_data(join(tweets_path, 'devset.csv'), config_data, vocab,noutputs, word_based=False)
+        valid_input, valid_output, _, valid_lex = load_text_gen_data(join(tweets_path, 'devset.csv'), config_data, vocab,noutputs, word_based=False)
         logging.info('Load Output Validation Data')
-        valid_dev_input, valid_dev_output, valid_dev_lex = load_text_gen_data(join(tweets_path, 'devset_reduced.csv'), config_data, vocab, noutputs, random_output=False, word_based=False)
+        valid_dev_input, valid_dev_output, _, valid_dev_lex = load_text_gen_data(join(tweets_path, 'devset_reduced.csv'), config_data, vocab, noutputs, random_output=False, word_based=False)
 
         step = K.variable(1., name='step_varialbe')
         steps_per_epoch = ceil(train_output[0].shape[0] / config_data['batch_size'])
@@ -133,13 +134,24 @@ def main(args):
 
         terminate_on_nan = TerminateOnNaN()
         output_callback = LexOutputCallback(vae_vanilla_test_model, valid_dev_input, valid_dev_lex, 1, vocab, delimiter, fname='{}/test_output'.format(log_path))
+
         #output_callback_full = LexOutputCallback(vae_vanilla_test_model, valid_dev_input, valid_dev_lex, 1, vocab, delimiter, fname='{}/test_output'.format(log_path))
+        #
+        # vae_vanilla_train_model.fit_generator(
+        #     generator=generate_data_stream(config_data['pretrain_path'], config_data, vocab, config_data['batch_size'], noutputs=3),
+        #     steps_per_epoch=steps_per_epoch,
+        #     epochs=ceil(config_data['pretrain_samples']/config_data['pretrain_samples_per_epoch']),
+        #     callbacks=[output_callback, terminate_on_nan],
+        #     validation_data=(valid_input, valid_output[:3]),
+        # )
+
         vae_vanilla_train_model.fit(
             x=train_input,
-            y=train_output[:3],
-            epochs=10,
+            y=train_output[:2],
+            epochs=config_data['pretrain_epochs'],
             batch_size=batch_size,
-            validation_data=(valid_input, valid_output[:3]),
+            validation_data=(valid_input, valid_output[:2]),
+            sample_weight=train_weights[:2],
             callbacks=[
                 output_callback,
                 terminate_on_nan
@@ -189,6 +201,7 @@ def main(args):
                 batch_ids = index_array[batch_start:batch_end]
                 X = _slice_arrays(train_input, batch_ids)
                 y = _slice_arrays(train_output, batch_ids)
+                sample_weights = _slice_arrays(train_weights, batch_ids)
 
                 batch_logs['batch'] = batch_index
                 batch_logs['size'] = batch_size
@@ -196,12 +209,12 @@ def main(args):
                 callbacks.on_batch_begin(batch_index, batch_logs)
 
                 set_trainability(discriminator, trainable=False)
-                enc_outs = vae_model_train.train_on_batch(x=X, y=y)
+                enc_outs = vae_model_train.train_on_batch(x=X, y=y, sample_weight=sample_weights)
 
                 set_trainability(discriminator, trainable=True)
                 list_disc_loss_real = []
                 if steps < 25 or steps % 500 == 0:
-                    disc_iterations = 5
+                    disc_iterations = 25
                 else:
                     disc_iterations = discriminator_iterations
                 for disc_it in range(disc_iterations):

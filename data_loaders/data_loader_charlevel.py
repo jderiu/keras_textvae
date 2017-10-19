@@ -11,7 +11,7 @@ import csv
 
 
 def generate_data_stream(fname, config_data, vocabulary, batch_size, noutputs=2, skip_data=0):
-    max_sentence_len = config_data['max_sentence_length']
+    max_sentence_len = config_data['max_sentence_len']
     max_idx = max(vocabulary.values())
     dummy_word_idx = max_idx + 1
     outputs = [np.ones(batch_size)] * noutputs

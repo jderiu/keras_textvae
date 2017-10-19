@@ -1,6 +1,6 @@
 import keras.backend as K
 import numpy as np
-from keras.layers import  Lambda, Conv1D, Embedding, Input, BatchNormalization, Activation, Flatten, Dense, GlobalMaxPooling1D, PReLU, Reshape, Conv2DTranspose, concatenate, ZeroPadding1D
+from keras.layers import Lambda, Conv1D, Embedding, Input, BatchNormalization, Activation, Flatten, Dense, GlobalMaxPooling1D, PReLU, Reshape, Conv2DTranspose, concatenate, ZeroPadding1D, LSTM
 from custom_layers.sampling_layer import Sampling
 from custom_layers.sem_recurrent import SC_LSTM
 from custom_layers.word_dropout import WordDropout
@@ -10,40 +10,9 @@ from keras.optimizers import RMSprop, Adadelta, Nadam
 
 def get_encoder(input_idx, input_one_hot_embeddings, nfilter, z_size, intermediate_dim, one_hot_embeddings):
     # oshape = (batch_size, sample_size/2, 128)
-    conv1 = Conv1D(
-        filters=nfilter,
-        kernel_size=3,
-        strides=2,
-        padding='same'
-    )(one_hot_embeddings)
-    bn1 = BatchNormalization()(conv1)
-    relu1 = Activation('relu')(bn1)
-    # oshape = (batch_size, sample_size/4, 128)
-    conv2 = Conv1D(
-        filters=2 * nfilter,
-        kernel_size=3,
-        strides=2,
-        padding='same'
-    )(relu1)
-    bn2 = BatchNormalization()(conv2)
-    relu2 = Activation('relu')(bn2)
-    conv3 = Conv1D(
-        filters=2 * nfilter,
-        kernel_size=3,
-        strides=2,
-        padding='same',
-    )(relu2)
-    bn3 = BatchNormalization()(conv3)
-    relu3 = Activation('relu')(bn3)
-    # oshape = (batch_size, sample_size/4*256)
-    flatten = Flatten()(relu3)
-    # need to store the size of the representation after the convolutions -> needed for deconv later
-    hidden_intermediate_enc = Dense(
-        intermediate_dim,
-        name='intermediate_encoding'
-    )(flatten)
-    hidden_mean = Dense(z_size, name='mu')(hidden_intermediate_enc)
-    hidden_log_sigma = Dense(z_size, name='sigma')(hidden_intermediate_enc)
+    lstm = LSTM(units=300, dropout=0.2, recurrent_dropout=0.2, name='encoding_lstm', go_backwards=True, implementation=2)(one_hot_embeddings)
+    hidden_mean = Dense(z_size, name='mu')(lstm)
+    hidden_log_sigma = Dense(z_size, name='sigma')(lstm)
 
     sampling_object = Sampling(z_size)
     sampling = sampling_object([hidden_mean, hidden_log_sigma])
@@ -119,6 +88,41 @@ def get_decoder(decoder_input, nclasses, nfilter, sample_out_size, out_size, int
     return decoder_train, decoder_test
 
 
+def sc_lstm_decoder(decoder_input, nclasses, sample_out_size, lstm_size, text_idx, text_one_hot, dialogue_act, inputs, step):
+
+    def remove_last_column(x):
+        return x[:, :-1, :]
+
+    padding = ZeroPadding1D(padding=(1, 0))(text_one_hot)
+    previous_char_slice = Lambda(remove_last_column, output_shape=(sample_out_size, nclasses))(padding)
+
+    temperature = 1 / step
+
+    lstm = SC_LSTM(
+        lstm_size,
+        nclasses,
+        softmax_temperature=temperature,
+        generation_only=True,
+        condition_on_ptm1=True,
+        semantic_condition=True,
+        return_da=False,
+        return_state=False,
+        use_bias=True,
+        return_sequences=True,
+        implementation=2,
+        dropout=0.2,
+        recurrent_dropout=0.2,
+        sc_dropout=0.2
+    )
+
+    recurrent_component = lstm([previous_char_slice, dialogue_act])
+
+    decoder_train = Model(inputs=[decoder_input, text_idx] + inputs, outputs=recurrent_component, name='decoder_{}'.format('train'))
+    #decoder_test = Model(inputs=[decoder_input, text_idx] + inputs, outputs=recurrent_component, name='decoder_{}'.format('test'))
+    # decoder_train.summary()
+    return decoder_train, decoder_train
+
+
 def conv_block(input, nfilter):
     conv1 = Conv1D(filters=nfilter, kernel_size=3, strides=2, padding='same')(input)
     bn1 = BatchNormalization(scale=False)(conv1)
@@ -133,14 +137,17 @@ def conv_block(input, nfilter):
     return max_pool
 
 
-def get_descriminator(g_in, targets, nfilter, intermediate_dim):
+def get_descriminator(g_in, targets, nfilter, intermediate_dim, step):
     in_conv0 = conv_block(g_in, nfilter)
 
     hidden_intermediate_discr = Dense(intermediate_dim, activation='relu', name='discr_activation')(in_conv0)
 
+    temperature = 1/step
     discr_losses = []
     for target, nlabels, name in targets:
         logits = Dense(nlabels, activation='linear', name='softmax_{}'.format(name))(hidden_intermediate_discr)
+        #temp_layer = Lambda(lambda x: x/temperature, output_shape=logits._keras_shape)(logits)
+
         softmax = Activation(activation='softmax')(logits)
         discr_losses.append(softmax)
         #discr_loss = Lambda(cross_ent_loss, output_shape=(1,), name='loss_{}'.format(name))([sigmoid, target])
@@ -162,9 +169,9 @@ def get_vae_gan_model(config_data, vocab_char, step):
     lstm_size = config_data['lstm_size']
     alpha = config_data['alpha']
     intermediate_dim = config_data['intermediate_dim']
-    nfilter = 128
+    nfilter = config_data['nb_filter']
     out_size = 200
-    eps = 0.001
+    eps = 1e-5
 
     anneal_start = config_data['anneal_start']
     anneal_end = anneal_start + config_data['anneal_duration']
@@ -177,11 +184,11 @@ def get_vae_gan_model(config_data, vocab_char, step):
     price_range_idx = Input(batch_shape=(None, 7), dtype='float32', name='price_range_idx')
     customer_feedback_idx = Input(batch_shape=(None, 7), dtype='float32', name='customer_feedback_idx')
     near_idx = Input(batch_shape=(None, 2), dtype='float32', name='near_idx')
-    food_idx = Input(batch_shape=(None, 8), dtype='float32', name='food_idx')
+    food_idx = Input(batch_shape=(None, 2), dtype='float32', name='food_idx')
     area_idx = Input(batch_shape=(None, 3), dtype='float32', name='area_idx')
     family_idx = Input(batch_shape=(None, 3), dtype='float32', name='family_idx')
     text_idx = Input(batch_shape=(None, sample_in_size), dtype='int32', name='character_output')
-    da_size = 36
+    da_size = 30
 
     inputs_list = [
         (name_idx, 2, 'name'),
@@ -189,7 +196,7 @@ def get_vae_gan_model(config_data, vocab_char, step):
         (price_range_idx, 7, 'price_range'),
         (customer_feedback_idx, 7, 'feedback'),
         (near_idx, 2, 'near'),
-        (food_idx, 8, 'food'),
+        (food_idx, 2, 'food'),
         (area_idx, 3, 'area'),
         (family_idx, 3, 'family')
     ]
@@ -222,13 +229,14 @@ def get_vae_gan_model(config_data, vocab_char, step):
     # Define Decoder
     # == == == == == =
     decoder_input = Input(shape=(z_size + da_size,), name='decoder_input')
-    decoder_train, decoder_test = get_decoder(decoder_input, nclasses, nfilter, sample_in_size, out_size, intermediate_dim, lstm_size, text_idx, dropped_one_hot, dialogue_act, inputs, step)
+    #decoder_train, decoder_test = get_decoder(decoder_input, nclasses, nfilter, sample_in_size, out_size, intermediate_dim, lstm_size, text_idx, text_one_hot, dialogue_act, inputs, step)
+    decoder_train, decoder_test = sc_lstm_decoder(decoder_input, nclasses, sample_in_size, lstm_size, text_idx, text_one_hot, dialogue_act, inputs,step)
 
     # == == == == == == == =
     # Define Discriminators
     # == == == == == == == =
     dis_input = Input(shape=(sample_in_size, nclasses))
-    discriminator = get_descriminator(dis_input, inputs_list, nfilter, intermediate_dim)
+    discriminator = get_descriminator(dis_input, inputs_list, nfilter, intermediate_dim, step)
 
     def vae_cross_ent_loss(args):
         x_truth, x_decoded_final = args
@@ -236,7 +244,7 @@ def get_vae_gan_model(config_data, vocab_char, step):
         x_decoded_flat = K.reshape(x_decoded_final, shape=(-1, K.shape(x_decoded_final)[-1]))
         cross_ent = K.categorical_crossentropy(x_decoded_flat, x_truth_flatten)
         cross_ent = K.reshape(cross_ent, shape=(-1, K.shape(x_truth)[1]))
-        sum_over_sentences = K.sum(cross_ent, axis=1)
+        sum_over_sentences = K.mean(cross_ent, axis=1)
         return sum_over_sentences
 
     def vae_kld_loss(args):
@@ -283,7 +291,7 @@ def get_vae_gan_model(config_data, vocab_char, step):
 
     z_prior, z_mean, z_sigmoid = encoder(text_idx)
     latent_var = concatenate(inputs=[z_prior, dialogue_act], axis=1)
-    x_p, x_aux = decoder_train([latent_var, text_idx] + inputs)
+    x_p = decoder_train([latent_var, text_idx] + inputs)
     _, z_pred_prior, _ = discr_encoder(x_p)
 
     dlosses = discriminator(x_p)
@@ -297,15 +305,15 @@ def get_vae_gan_model(config_data, vocab_char, step):
     #vae_loss
     main_loss = Lambda(vae_cross_ent_loss, output_shape=(1,), name='main')([text_one_hot, x_p])
     kld_loss = Lambda(vae_kld_loss, output_shape=(1,), name='kld')([z_mean, z_sigmoid])
-    aux_loss = Lambda(vae_aux_loss, output_shape=(1,), name='auxiliary')([text_one_hot, x_aux])
+    #aux_loss = Lambda(vae_aux_loss, output_shape=(1,), name='auxiliary')([text_one_hot, x_aux])
     encoding_discrimination_loss = Lambda(enc_discr_dist, output_shape=(1,), name='z')([z_mean, z_pred_prior])
     #da_loss = Lambda(da_loss_fun, output_shape=(1,), name='dialogue_act')([da_act_t])
     #da_history_loss = Lambda(da_history_loss_fun, output_shape=(1,), name='dialogue_history')([da_act_history])
     argmax = Lambda(argmax_fun, output_shape=(sample_in_size,))(x_argmax)
 
-    vae_vanilla_train_model = Model(inputs=inputs + [text_idx], outputs=[main_loss, kld_loss, aux_loss])#for pretraining
+    vae_vanilla_train_model = Model(inputs=inputs + [text_idx], outputs=[main_loss, kld_loss])#for pretraining
     vae_vanilla_test_model = Model(inputs=inputs + [text_idx], outputs=argmax)#for pretraining
-    vae_model_train = Model(inputs=inputs + [text_idx], outputs=[main_loss, kld_loss, aux_loss, encoding_discrimination_loss] + discr_losses) #for training
+    vae_model_train = Model(inputs=inputs + [text_idx], outputs=[main_loss, kld_loss, encoding_discrimination_loss] + discr_losses) #for training
     vae_model_test = Model(inputs=inputs + [text_idx], outputs=argmax)
 
     #discriminator_training
@@ -315,7 +323,7 @@ def get_vae_gan_model(config_data, vocab_char, step):
     discriminator_model = Model(inputs=text_idx, outputs=discr_train_losses)
     discriminator_model.compile(optimizer=optimizer_ada, loss='categorical_crossentropy')
 
-    vae_model_train.compile(optimizer=optimizer_ada, loss=lambda y_true, y_pred: y_pred)
+    vae_model_train.compile(optimizer=optimizer_ada, loss=lambda y_true, y_pred: y_pred, loss_weights=[1, 1, 0.01] + [0.01]*len(discr_losses))
     vae_vanilla_train_model.compile(optimizer=optimizer_ada, loss=lambda y_true, y_pred: y_pred)
 
     return vae_model_train, vae_model_test, vae_vanilla_train_model, vae_vanilla_test_model, discriminator_model, decoder_test, discriminator

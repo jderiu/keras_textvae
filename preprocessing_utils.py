@@ -5,7 +5,7 @@ from nltk.tokenize import TweetTokenizer, WordPunctTokenizer
 import re
 
 
-def preprocess_nlg_text(text, name, near, name_tok, near_tok, word_based=True):
+def preprocess_nlg_text(text, name, near, food, name_tok, near_tok, food_tok, word_based=False):
 
     text = text.replace('\n', '').replace('\r', '').replace('\t', ' ')
 
@@ -14,6 +14,9 @@ def preprocess_nlg_text(text, name, near, name_tok, near_tok, word_based=True):
 
     if near is not '':
         text = text.replace(near, near_tok)
+
+    if food is not '':
+        text = text.replace(food, food_tok)
 
     if word_based:
         tokenizer = WordPunctTokenizer()

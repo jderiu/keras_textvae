@@ -6,8 +6,9 @@ import json
 from os.path import join
 import _pickle as cPickle
 
-name_tok = 'SEMNAME'
-near_tok = 'SEMNEAR'
+name_tok = '@name'
+near_tok = '@near'
+food_tok = '@food'
 
 
 def load_text_gen_data(fname, config_data, vocabulary, noutputs=3, random_output=False, word_based=False):
@@ -40,11 +41,14 @@ def load_text_gen_data(fname, config_data, vocabulary, noutputs=3, random_output
 
     processed_fields = defaultdict(lambda: [])
     outputs_raw = []
+    weights_raw = []
 
     for row in reader:
         i1 = row['mr']
         i2 = row['ref']
+        i3 = row.get('weight', 1.0)
 
+        weights_raw.append(float(i3))
         outputs_raw.append(i2)
         keywords = i1.split(',')
         kv = {}
@@ -63,7 +67,7 @@ def load_text_gen_data(fname, config_data, vocabulary, noutputs=3, random_output
 
     for header, _ in headers:
         values = processed_fields[header]
-        if header in ['name', 'near']:
+        if header in ['name', 'near', 'food']:
             value_idx = []
             for value in values:
                 x = np.zeros(2)
@@ -73,13 +77,6 @@ def load_text_gen_data(fname, config_data, vocabulary, noutputs=3, random_output
                     x[1] = 1
                 value_idx.append(x)
             value_idx = np.array(value_idx).astype('float32')
-            #delex
-            if header == 'name':
-                values = [name_tok for _ in values]
-            elif header == 'near':
-                values = [near_tok for _ in values]
-
-            #value_idx = convert2indices(values, vocabulary, dummy_word_idx, dummy_word_idx, max_sent_length=max_input_length)
         else:
             value_idx = []
             for value in values:
@@ -91,22 +88,24 @@ def load_text_gen_data(fname, config_data, vocabulary, noutputs=3, random_output
             value_idx = np.array(value_idx).astype('float32')
         inputs.append(value_idx)
 
-    outputs_delex = [preprocess_nlg_text(x, name, near, name_tok, near_tok, word_based=word_based) for x, name, near in zip(outputs_raw, processed_fields['name'], processed_fields['near'])]
+    outputs_delex = [preprocess_nlg_text(x, name, near, food, name_tok, near_tok, food_tok, word_based=word_based) for x, name, near, food in zip(outputs_raw, processed_fields['name'], processed_fields['near'],  processed_fields['food'])]
 
     target_idx = convert2indices(outputs_delex, vocabulary, dummy_word_idx, dummy_word_idx, max_sent_length=max_output_length)
 
     if random_output:
         target_idx = np.random.normal(loc=0, scale=0.25, size=target_idx.shape)#np.ones_like(target_idx)*dropout_word_idx
     inputs.append(target_idx)
+    weights = np.array(weights_raw)
 
     outputs = [np.ones(len(inputs[0]))] * noutputs
 
     lex_dict = {
         name_tok: processed_fields['name'],
         near_tok: processed_fields['near'],
+        food_tok: processed_fields['food'],
     }
 
-    return inputs, outputs, lex_dict
+    return inputs, outputs, [weights]*noutputs, lex_dict
 
 
 def process_name(text):
@@ -161,15 +160,19 @@ def process_near(text):
 
 
 def process_food(text):
-    return {
-        'French': 0,
-        'English': 1,
-        'Japanese': 2,
-        'Indian': 3,
-        'Italian': 4,
-        'Fast food': 5,
-        'Chinese': 6
-    }.get(text, 7)
+    if text:
+        return text
+    else:
+        return ''
+    # return {
+    #     'French': 0,
+    #     'English': 1,
+    #     'Japanese': 2,
+    #     'Indian': 3,
+    #     'Italian': 4,
+    #     'Fast food': 5,
+    #     'Chinese': 6
+    # }.get(text, 7)
 
 
 def process_family_friendly(text):
