@@ -79,6 +79,8 @@ RUN pip install --no-cache-dir --upgrade gensim
 
 RUN python -m nltk.downloader punkt
 RUN python -m nltk.downloader stopwords
+RUN python -m nltk.downloader nonbreaking_prefixes
+RUN python -m nltk.downloader perluniprops
 
 
 RUN mkdir /DLFramework

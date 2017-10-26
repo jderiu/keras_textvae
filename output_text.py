@@ -30,15 +30,6 @@ def output_lex_text(model, text_idx, text_lex, vocab, step='final', delimiter=''
                 oline = oline.replace(lex_key, val)
         ofile.write('{}'.format(oline) + '\n')
 
-    # for i, text in enumerate(generated_texts[0]):
-    #     list_txt_idx = [int(x) for x in text.tolist()]
-    #     txt_list = [inverse_vocab.get(int(x), '') for x in list_txt_idx]
-    #     oline = delimiter.join(txt_list)
-    #     for lex_key in text_lex.keys():
-    #         val = text_lex[lex_key][i]
-    #         if val:
-    #             oline = oline.replace(lex_key, val)
-    #     ofile.write('{}'.format(oline) + '\n')
     ofile.close()
 
 

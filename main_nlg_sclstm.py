@@ -66,11 +66,13 @@ def main(args):
         noutputs = 3
 
         logging.info('Load Training Data')
-        train_input, train_output, train_lex = load_text_gen_data(join(tweets_path, 'trainset.csv'),   config_data, vocab, noutputs, word_based=False)
+        train_input, train_output, train_weights, train_lex = load_text_gen_data(join(tweets_path, 'trainset.csv'),   config_data, vocab, noutputs, word_based=False)
         logging.info('Load Validation Data')
-        valid_input, valid_output, valid_lex = load_text_gen_data(join(tweets_path, 'devset.csv'), config_data, vocab, noutputs, word_based=False)
+        valid_input, valid_output, _, valid_lex = load_text_gen_data(join(tweets_path, 'devset.csv'), config_data, vocab, noutputs, word_based=False)
         logging.info('Load Output Validation Data')
-        valid_dev_input, valid_dev_output, valid_dev_lex = load_text_gen_data(join(tweets_path, 'devset_reduced.csv'), config_data, vocab, noutputs, random_output=True, word_based=False)
+        valid_dev_input, valid_dev_output, _, valid_dev_lex = load_text_gen_data(join(tweets_path, 'devset_reduced.csv'), config_data, vocab, noutputs, random_output=True, word_based=False)
+        valid_dev_input2, valid_dev_output2, _, valid_dev_lex2 = load_text_gen_data(join(tweets_path, 'devset_located.csv'), config_data, vocab, noutputs, random_output=True, word_based=False)
+        valid_dev_input3, valid_dev_output3, _, valid_dev_lex3 = load_text_gen_data(join(tweets_path, 'devset_located.csv'), config_data, vocab, noutputs, random_output=True, word_based=False, random_first_word=True)
 
         step = K.variable(1.)
 
@@ -93,14 +95,21 @@ def main(args):
         optimizer = Adadelta(lr=1, epsilon=1e-8, rho=0.95, decay=0.0001)
         cnn_model.compile(optimizer=optimizer, loss=lambda y_true, y_pred: y_pred)
 
+        lex_output = LexOutputCallback(test_model, valid_dev_input, valid_dev_lex, 1, vocab, delimiter, fname='{}/test_output'.format(log_path))
+        lex_output2 = LexOutputCallback(test_model, valid_dev_input2, valid_dev_lex2, 1, vocab, delimiter, fname='{}/test_output_located'.format(log_path))
+        lex_output3 = LexOutputCallback(test_model, valid_dev_input3, valid_dev_lex3, 1, vocab, delimiter, fname='{}/test_output_random'.format(log_path))
+
         cnn_model.fit(
             x=train_input,
             y=train_output,
             epochs=1000,
             batch_size=config_data['batch_size'],
             validation_data=(valid_input, valid_output),
+            sample_weight=train_weights,
             callbacks=[StepCallback(step, steps_per_epoch),
-                       LexOutputCallback(test_model, valid_dev_input, valid_dev_lex, 5, vocab, delimiter, fname='{}/test_output'.format(log_path)),
+                       lex_output,
+                       lex_output2,
+                       lex_output3,
                        terminate_on_nan,
                        model_checkpoint,
                        reduce_callback],

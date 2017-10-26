@@ -1,5 +1,6 @@
 {
   "max_sentence_len": 128,
+  "max_output_length": 128,
   "z_size": 50,
   "nclasses": 51,
   "discriminator_iterations": 2,

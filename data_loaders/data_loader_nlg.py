@@ -1,4 +1,5 @@
 from preprocessing_utils import convert2indices, preprocess_nlg_text
+from nltk.tokenize.moses import MosesTokenizer
 import csv
 import numpy as np
 from collections import defaultdict, Counter
@@ -6,13 +7,18 @@ import json
 from os.path import join
 import _pickle as cPickle
 
-name_tok = '@name'
-near_tok = '@near'
-food_tok = '@food'
+name_tok = 'XNAMEX'
+near_tok = 'XNEARX'
+food_tok = 'XFOODX'
+
+tokenizer = MosesTokenizer()
 
 
-def load_text_gen_data(fname, config_data, vocabulary, noutputs=3, random_output=False, word_based=False):
+def load_text_gen_data(fname, config_data, vocabulary, noutputs=3, random_output=False, word_based=False, random_first_word=False):
     max_output_length = config_data['max_sentence_len']
+    vocab_path = config_data['vocab_path']
+    fw_vocab = cPickle.load(open(join(vocab_path, 'fw_vocab.pkl'), 'rb'))
+
     dummy_word_idx = len(vocabulary)
     dropout_word_idx = len(vocabulary) + 1
     reader = csv.DictReader(open(fname, encoding='utf-8', mode='rt'))
@@ -51,6 +57,7 @@ def load_text_gen_data(fname, config_data, vocabulary, noutputs=3, random_output
         weights_raw.append(float(i3))
         outputs_raw.append(i2)
         keywords = i1.split(',')
+
         kv = {}
         for keyword in keywords:
             kidx = keyword.find('[')
@@ -89,7 +96,8 @@ def load_text_gen_data(fname, config_data, vocabulary, noutputs=3, random_output
         inputs.append(value_idx)
 
     outputs_delex = [preprocess_nlg_text(x, name, near, food, name_tok, near_tok, food_tok, word_based=word_based) for x, name, near, food in zip(outputs_raw, processed_fields['name'], processed_fields['near'],  processed_fields['food'])]
-
+    first_words = get_first_words(outputs_delex, fw_vocab, random_first_word)
+    inputs.append(first_words)
     target_idx = convert2indices(outputs_delex, vocabulary, dummy_word_idx, dummy_word_idx, max_sent_length=max_output_length)
 
     if random_output:
@@ -106,6 +114,27 @@ def load_text_gen_data(fname, config_data, vocabulary, noutputs=3, random_output
     }
 
     return inputs, outputs, [weights]*noutputs, lex_dict
+
+
+def get_first_words(outputs_delex, first_word_dict, random_first_word=False):
+    first_words = []
+    first_word_stats = defaultdict(lambda: 0)
+    for i2 in outputs_delex:
+        tokens = tokenizer.tokenize(i2)
+        first_words.append(tokens[0])
+        first_word_stats[tokens[0]] += 1
+    idx_counter = max(first_word_dict.values()) + 1
+    value_idx = []
+    for word in first_words:
+        x = np.zeros(idx_counter + 1)
+        if random_first_word:
+            idx = np.random.randint(low=0, high=idx_counter)
+        else:
+            idx = first_word_dict.get(word, idx_counter)
+        x[idx] = 1.0
+        value_idx.append(x)
+    value_idx = np.array(value_idx).astype('float32')
+    return value_idx
 
 
 def process_name(text):

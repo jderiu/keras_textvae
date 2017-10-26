@@ -26,12 +26,13 @@ def vae_model(config_data, vocab, step):
     price_range_idx = Input(batch_shape=(None, 7), dtype='float32', name='price_range_idx')
     customer_feedback_idx = Input(batch_shape=(None, 7), dtype='float32', name='customer_feedback_idx')
     near_idx = Input(batch_shape=(None, 2), dtype='float32', name='near_idx')
-    food_idx = Input(batch_shape=(None, 8), dtype='float32', name='food_idx')
+    food_idx = Input(batch_shape=(None, 2), dtype='float32', name='food_idx')
     area_idx = Input(batch_shape=(None, 3), dtype='float32', name='area_idx')
     family_idx = Input(batch_shape=(None, 3), dtype='float32', name='family_idx')
+    fw_idx = Input(batch_shape=(None, 40), dtype='float32', name='fw_idx')
     output_idx = Input(batch_shape=(None, sample_out_size), dtype='int32', name='character_output')
 
-    inputs = [name_idx, eat_type_idx, price_range_idx, customer_feedback_idx, near_idx, food_idx, area_idx, family_idx]
+    inputs = [name_idx, eat_type_idx, price_range_idx, customer_feedback_idx, near_idx, food_idx, area_idx, family_idx, fw_idx]
     word_dropout = WordDropout(rate=1.0, dummy_word=dropout_word_idx, anneal_step=step)(output_idx)
 
     one_hot_weights = np.identity(nclasses)

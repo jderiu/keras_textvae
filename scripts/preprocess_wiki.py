@@ -5,7 +5,7 @@ from xml.etree.cElementTree import iterparse
 from tqdm import tqdm
 
 #wiki_file = bz2file.open('F:/Wikipedia Embeddings/enwiki-20170120-pages-articles-multistream.xml.bz2', 'rb')
-wiki_file = open('F:/Wikipedia Embeddings/frwiki-20170820-pages-articles-multistream.xml', 'rt', encoding='utf-8')
+wiki_file = open('F:/Wikipedia Embeddings/dewiki-20170820-pages-articles-multistream.xml', 'rt', encoding='utf-8')
 
 RE_P0 = re.compile('<!--.*?-->', re.DOTALL | re.UNICODE)  # comments
 RE_P1 = re.compile('<ref([> ].*?)(</ref>|/>)', re.DOTALL | re.UNICODE)  # footnotes
@@ -154,8 +154,8 @@ else:
     already_processed_articles = 0
 
 
-pr_file = open('F:/Wikipedia Embeddings/simple_processed_articles.txt', 'at')
-ofile = open('F:/Wikipedia Embeddings/wiki_sentences_{}.fr.txt'.format(already_processed_articles), 'wt', encoding='utf-8')
+pr_file = open('F:/Wikipedia Embeddings/simple_processed_articles_de.txt', 'at')
+ofile = open('F:/Wikipedia Embeddings/wiki_articles_{}.de.txt'.format(already_processed_articles), 'wt', encoding='utf-8')
 
 processed_articles = 0
 elemlist = []
@@ -178,20 +178,21 @@ for elem in tqdm(elems):
                 [el.clear() for el in elemlist]
                 elemlist = []
                 continue
+            if processed_articles % 100000 == 0:
+                print('Processed {} articles:'.format(processed_articles))
 
             text = remove_markup(text)
             text = text.replace('[', '').replace(']', '')
             text = text.replace('\n', ' ')
+            text = text.replace('\r', ' ')
             text = text.replace('\'\'\'', '')
             text = text.replace('\'\'', '').strip()
 
             pr_file.write('{}\n'.format(processed_articles))
             pr_file.flush()
-            sentences = sent_tokenize(text, 'english')
-            for sentence in sentences:
-                sentence = title_regex.sub('', sentence).strip() + '\n'
-                ofile.write(sentence)
-                ofile.flush()
+            ofile.write(text + '\n')
+            ofile.flush()
+
         elem.clear()
         root.clear()
         [el.clear() for el in elemlist]

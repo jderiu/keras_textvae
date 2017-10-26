@@ -66,45 +66,80 @@ class GANOutputCallback(Callback):
             output_text(self.test_model, self.validation_input, self.vocabulary, str(epoch), delimiter=self.delimiter, fname=self.fname)
         self.ep_end_weights = {}
 
-        #loss = logs.get('loss', '-')
-        enc_loss = logs.get('enc_loss', '-')
-        enc_main_loss = logs.get('enc_main_loss', '-')
-        enc_kld_loss = logs.get('enc_kld_loss', '-')
-        enc_aux_loss = logs.get('enc_auxiliary_loss', '-')
-        enc_z_loss = logs.get('enc_z_loss', '-')
+        loss = logs.get('loss', '-')
+        main_loss = logs.get('main_loss', '-')
+        dialogue_act_loss = logs.get('dialogue_act_loss', '-')
+        dialogue_history_loss = logs.get('dialogue_history_loss', '-')
+        val_loss = logs.get('val_loss', '-')
+        val_main_loss = logs.get('val_main_loss', '-')
+        val_dialogue_act_loss = logs.get('val_dialogue_act_loss', '-')
+        val_dialogue_history_loss = logs.get('val_dialogue_history_loss', '-')
 
-        enc_name_loss = logs.get('enc_name_loss', 0)
-        enc_eat_type_loss = logs.get('enc_eat_type_loss', 0)
-        enc_price_range_loss = logs.get('enc_price_range_loss', 0)
-        enc_feedback_loss = logs.get('enc_feedback_loss_loss', 0)
-        enc_near_loss = logs.get('enc_near_loss', 0)
-        enc_food_loss = logs.get('enc_food_loss', 0)
-        enc_area_loss = logs.get('enc_area_loss', 0)
-        enc_family_loss = logs.get('enc_family_loss', 0)
+        logging.info('TRAINING: Loss: {0: <32}\tMain Loss: {1: <32}\tDA Loss: {2: <32}\tDA Hist Loss: {3: <32}'.format(loss, main_loss, dialogue_act_loss, dialogue_history_loss))
+        logging.info('VALIDATION: Loss: {0: <32}\tMain Loss: {1: <32}\tDA Loss: {2: <32}\tDA Hist Loss: {3: <32}'.format(val_loss, val_main_loss, val_dialogue_act_loss, val_dialogue_history_loss))
+        #reset datastructures
+        self.ep_begin_weights = {}
+        self.ep_end_weights = {}
 
-        enc_feature_loss = enc_name_loss + enc_eat_type_loss + enc_price_range_loss + enc_feedback_loss + enc_near_loss + enc_food_loss + enc_area_loss + enc_family_loss
+
+class LexOutputCallbackGAN(Callback):
+    def __init__(self, test_model, validation_input, validation_lex, frequency, vocabulary, delimiter, fname='logging/test_output'):
+        self.validation_input = validation_input
+        self.vocabulary = vocabulary
+        self.test_model = test_model
+        self.frequency = frequency
+        self.delimiter = delimiter
+        self.fname = fname
+        self.validation_lex = validation_lex
+
+        super(LexOutputCallbackGAN, self).__init__()
+
+    def on_epoch_end(self, epoch, logs={}):
+        if epoch % self.frequency == 0:
+            output_lex_text(self.test_model, self.validation_input, self.validation_lex, self.vocabulary, str(epoch), delimiter=self.delimiter, fname=self.fname)
+        self.ep_end_weights = {}
+
+        loss = logs.get('loss', '-')
+        main_loss = logs.get('main_loss', '-')
+        dialogue_act_loss = logs.get('dialogue_act_loss', '-')
+        dialogue_history_loss = logs.get('dialogue_history_loss', '-')
+
+        name_loss = logs.get('name_loss', 0)
+        eat_type_loss = logs.get('eat_type_loss', 0)
+        price_range_loss = logs.get('price_range_loss', 0)
+        feedback_loss = logs.get('feedback_loss_loss', 0)
+        near_loss = logs.get('near_loss', 0)
+        food_loss = logs.get('food_loss', 0)
+        area_loss = logs.get('area_loss', 0)
+        family_loss = logs.get('family_loss', 0)
+
+        feature_loss = name_loss + eat_type_loss + price_range_loss + feedback_loss + near_loss + food_loss + area_loss + family_loss
         dis_loss = logs.get('dis_loss', '-')
 
-        val_enc_loss = logs.get('val_enc_loss', '-')
-        val_enc_main_loss = logs.get('val_enc_main_loss', '-')
-        val_enc_kld_loss = logs.get('val_enc_kld_loss', '-')
-        val_enc_aux_loss = logs.get('val_enc_auxiliary_loss', '-')
-        val_enc_z_loss = logs.get('val_enc_z_loss', '-')
+        val_loss = logs.get('val_loss', '-')
+        val_main_loss = logs.get('val_main_loss', '-')
+        val_dialogue_history_loss = logs.get('val_dialogue_history_loss', '-')
+        val_dialogue_act_loss = logs.get('val_dialogue_act_loss', '-')
+        val_z_loss = logs.get('val_z_loss', '-')
         val_dis_loss = logs.get('val_dis_loss', '-')
-        val_enc_name_loss = logs.get('val_enc_name_loss', 0)
-        val_enc_eat_type_loss = logs.get('val_enc_eat_type_loss', 0)
-        val_enc_price_range_loss = logs.get('val_enc_price_range_loss', 0)
-        val_enc_feedback_loss = logs.get('val_enc_feedback_loss_loss', 0)
-        val_enc_near_loss = logs.get('val_enc_near_loss', 0)
-        val_enc_food_loss = logs.get('val_enc_food_loss', 0)
-        val_enc_area_loss = logs.get('val_enc_area_loss', 0)
-        val_enc_family_loss = logs.get('val_enc_family_loss', 0)
+        val_name_loss = logs.get('val_name_loss', 0)
+        val_eat_type_loss = logs.get('val_eat_type_loss', 0)
+        val_price_range_loss = logs.get('val_price_range_loss', 0)
+        val_feedback_loss = logs.get('val_feedback_loss_loss', 0)
+        val_near_loss = logs.get('val_near_loss', 0)
+        val_food_loss = logs.get('val_food_loss', 0)
+        val_area_loss = logs.get('val_area_loss', 0)
+        val_family_loss = logs.get('val_family_loss', 0)
 
-        val_enc_feature_loss = val_enc_name_loss + val_enc_eat_type_loss + val_enc_price_range_loss + val_enc_feedback_loss + val_enc_near_loss + val_enc_food_loss + val_enc_area_loss + val_enc_family_loss
+        val_feature_loss = val_name_loss + val_eat_type_loss + val_price_range_loss + val_feedback_loss + val_near_loss + val_food_loss + val_area_loss + val_family_loss
 
-        logging.info('TRAINING: Enc Loss: {0: <32}\tEnc Main Loss: {1: <32}\tEnc KLD Loss: {2: <32}\tEnc Aux Loss: {3: <32}\tEnc Z Loss: {4: <32}\tEnc Feature Loss: {5: <32}\tDis Loss: {6: <32}'.format(enc_loss, enc_main_loss, enc_kld_loss, enc_aux_loss, enc_z_loss, enc_feature_loss, dis_loss))
-        logging.info('VALIDATION: Enc Loss: {0: <32}\tEnc Main Loss: {1: <32}\tEnc KLD Loss: {2: <32}\tEnc Aux Loss: {3: <32}\tEnc Z Loss: {4: <32}\tEnc Feature Loss: {5: <32}\tDis Loss: {6: <32}'.format(val_enc_loss, val_enc_main_loss, val_enc_kld_loss, val_enc_aux_loss, val_enc_z_loss,val_enc_feature_loss, val_dis_loss))
-        #reset datastructures
+        logging.info(
+            '{0} TRAINING: Enc Loss: {1: <32}\tEnc Main Loss: {2: <32}\tEnc DA Loss: {3: <32}\tEnc DA Hist Loss: {4: <32}\tEnc Feature Loss: {5: <32}\tDis Loss: {6: <32}'.format(epoch,
+                loss, main_loss, dialogue_act_loss, dialogue_history_loss, feature_loss, dis_loss))
+        logging.info(
+            '{0} VALIDATION: Enc Loss: {1: <32}\tEnc Main Loss: {2: <32}\tEnc KLD Loss: {3: <32}\tEnc Aux Loss: {4: <32}\tEnc Feature Loss: {5: <32}\tDis Loss: {6: <32}'.format(epoch,
+                val_loss, val_main_loss, val_dialogue_act_loss, val_dialogue_history_loss, val_feature_loss, val_dis_loss))
+        # reset datastructures
         self.ep_begin_weights = {}
         self.ep_end_weights = {}
 
@@ -126,48 +161,24 @@ class LexOutputCallback(Callback):
             output_lex_text(self.test_model, self.validation_input, self.validation_lex, self.vocabulary, str(epoch), delimiter=self.delimiter, fname=self.fname)
         self.ep_end_weights = {}
 
-        enc_loss = logs.get('enc_loss', '-')
-        enc_main_loss = logs.get('enc_main_loss', '-')
-        enc_kld_loss = logs.get('enc_kld_loss', '-')
-        enc_aux_loss = logs.get('enc_auxiliary_loss', '-')
-        enc_z_loss = logs.get('enc_z_loss', '-')
-
-        enc_name_loss = logs.get('enc_name_loss', 0)
-        enc_eat_type_loss = logs.get('enc_eat_type_loss', 0)
-        enc_price_range_loss = logs.get('enc_price_range_loss', 0)
-        enc_feedback_loss = logs.get('enc_feedback_loss_loss', 0)
-        enc_near_loss = logs.get('enc_near_loss', 0)
-        enc_food_loss = logs.get('enc_food_loss', 0)
-        enc_area_loss = logs.get('enc_area_loss', 0)
-        enc_family_loss = logs.get('enc_family_loss', 0)
-
-        enc_feature_loss = enc_name_loss + enc_eat_type_loss + enc_price_range_loss + enc_feedback_loss + enc_near_loss + enc_food_loss + enc_area_loss + enc_family_loss
-        dis_loss = logs.get('dis_loss', '-')
-
-        val_enc_loss = logs.get('val_enc_loss', '-')
-        val_enc_main_loss = logs.get('val_enc_main_loss', '-')
-        val_enc_kld_loss = logs.get('val_enc_kld_loss', '-')
-        val_enc_aux_loss = logs.get('val_enc_auxiliary_loss', '-')
-        val_enc_z_loss = logs.get('val_enc_z_loss', '-')
-        val_dis_loss = logs.get('val_dis_loss', '-')
-        val_enc_name_loss = logs.get('val_enc_name_loss', 0)
-        val_enc_eat_type_loss = logs.get('val_enc_eat_type_loss', 0)
-        val_enc_price_range_loss = logs.get('val_enc_price_range_loss', 0)
-        val_enc_feedback_loss = logs.get('val_enc_feedback_loss_loss', 0)
-        val_enc_near_loss = logs.get('val_enc_near_loss', 0)
-        val_enc_food_loss = logs.get('val_enc_food_loss', 0)
-        val_enc_area_loss = logs.get('val_enc_area_loss', 0)
-        val_enc_family_loss = logs.get('val_enc_family_loss', 0)
-
-        val_enc_feature_loss = val_enc_name_loss + val_enc_eat_type_loss + val_enc_price_range_loss + val_enc_feedback_loss + val_enc_near_loss + val_enc_food_loss + val_enc_area_loss + val_enc_family_loss
+        loss = logs.get('loss', '-')
+        main_loss = logs.get('main_loss', '-')
+        dialogue_act_loss = logs.get('dialogue_act_loss', '-')
+        dialogue_history_loss = logs.get('dialogue_history_loss', '-')
+        val_loss = logs.get('val_loss', '-')
+        val_main_loss = logs.get('val_main_loss', '-')
+        val_dialogue_act_loss = logs.get('val_dialogue_act_loss', '-')
+        val_dialogue_history_loss = logs.get('val_dialogue_history_loss', '-')
 
         logging.info(
-            'TRAINING: Enc Loss: {0: <32}\tEnc Main Loss: {1: <32}\tEnc KLD Loss: {2: <32}\tEnc Aux Loss: {3: <32}\tEnc Z Loss: {4: <32}\tEnc Feature Loss: {5: <32}\tDis Loss: {6: <32}'.format(
-                enc_loss, enc_main_loss, enc_kld_loss, enc_aux_loss, enc_z_loss, enc_feature_loss, dis_loss))
+            'TRAINING: Loss: {0: <32}\tMain Loss: {1: <32}\tDA Loss: {2: <32}\tDA Hist Loss: {3: <32}'.format(loss,
+                                                                                                              main_loss,
+                                                                                                              dialogue_act_loss,
+                                                                                                              dialogue_history_loss))
         logging.info(
-            'VALIDATION: Enc Loss: {0: <32}\tEnc Main Loss: {1: <32}\tEnc KLD Loss: {2: <32}\tEnc Aux Loss: {3: <32}\tEnc Z Loss: {4: <32}\tEnc Feature Loss: {5: <32}\tDis Loss: {6: <32}'.format(
-                val_enc_loss, val_enc_main_loss, val_enc_kld_loss, val_enc_aux_loss, val_enc_z_loss,
-                val_enc_feature_loss, val_dis_loss))
+            'VALIDATION: Loss: {0: <32}\tMain Loss: {1: <32}\tDA Loss: {2: <32}\tDA Hist Loss: {3: <32}'.format(
+                val_loss, val_main_loss, val_dialogue_act_loss, val_dialogue_history_loss))
+
         # reset datastructures
         self.ep_begin_weights = {}
         self.ep_end_weights = {}
