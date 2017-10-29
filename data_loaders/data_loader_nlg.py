@@ -6,6 +6,7 @@ from collections import defaultdict, Counter
 import json
 from os.path import join
 import _pickle as cPickle
+import random
 
 name_tok = 'XNAMEX'
 near_tok = 'XNEARX'
@@ -18,6 +19,7 @@ def load_text_gen_data(fname, config_data, vocabulary, noutputs=3, random_output
     max_output_length = config_data['max_sentence_len']
     vocab_path = config_data['vocab_path']
     fw_vocab = cPickle.load(open(join(vocab_path, 'fw_vocab.pkl'), 'rb'))
+    overlap_map_for_fw = cPickle.load(open(join(vocab_path, 'overlap_map_for_fw.pkl'), 'rb'))
 
     dummy_word_idx = len(vocabulary)
     dropout_word_idx = len(vocabulary) + 1
@@ -51,7 +53,7 @@ def load_text_gen_data(fname, config_data, vocabulary, noutputs=3, random_output
 
     for row in reader:
         i1 = row['mr']
-        i2 = row['ref']
+        i2 = row.get('ref', '')
         i3 = row.get('weight', 1.0)
 
         weights_raw.append(float(i3))
@@ -96,7 +98,10 @@ def load_text_gen_data(fname, config_data, vocabulary, noutputs=3, random_output
         inputs.append(value_idx)
 
     outputs_delex = [preprocess_nlg_text(x, name, near, food, name_tok, near_tok, food_tok, word_based=word_based) for x, name, near, food in zip(outputs_raw, processed_fields['name'], processed_fields['near'],  processed_fields['food'])]
-    first_words = get_first_words(outputs_delex, fw_vocab, random_first_word)
+    if not random_first_word:
+        first_words = get_first_words(outputs_delex, fw_vocab, random_first_word)
+    else:
+        first_words, _ = sample_first_word(inputs, overlap_map_for_fw, fw_vocab)
     inputs.append(first_words)
     target_idx = convert2indices(outputs_delex, vocabulary, dummy_word_idx, dummy_word_idx, max_sent_length=max_output_length)
 
@@ -135,6 +140,46 @@ def get_first_words(outputs_delex, first_word_dict, random_first_word=False):
         value_idx.append(x)
     value_idx = np.array(value_idx).astype('float32')
     return value_idx
+
+
+def sample_first_word(inputs, overlap_map_for_fw, first_word_dict):
+    precence_idx = [1, 5, 12, 19, 21, 23, 26, 29]
+    value_idx = []
+    idx_counter = max(first_word_dict.values()) + 1
+    first_word_indices = []
+    for dp in zip(*inputs):
+        diffs = {}
+        x = np.concatenate(dp[:8])
+        vec = np.zeros(idx_counter + 1)
+        for fw_index, scores_1 in overlap_map_for_fw.items():
+            diff = np.mean(np.square(x - scores_1))
+            for pidx in precence_idx: #if the feature must be present or absent but isn't => thorw it out
+                if scores_1[pidx] == 1.0 and x[pidx] == 0.0 or scores_1[pidx] == 0.0 and x[pidx] == 1.0:
+                    diff = np.inf
+            diffs[fw_index] = diff
+        top_fw = [x for x in sorted(diffs.items(), key=lambda x: x[1], reverse=False)[:10]]
+        first_word = random.choice(top_fw)[0]
+        vec[first_word] = 1.0
+        first_word_indices.append(top_fw)
+        value_idx.append(vec)
+
+    value_idx = np.array(value_idx).astype('float32')
+    return value_idx, first_word_indices
+
+
+def get_fist_words_for_input(dp, overlap_map_for_fw):
+    precence_idx = [1, 5, 12, 19, 21, 23, 26, 29]
+    diffs = {}
+    x = np.concatenate(dp[:8])
+    for fw_index, scores_1 in overlap_map_for_fw.items():
+        diff = np.mean(np.square(x - scores_1))
+        for pidx in precence_idx:  # if the feature must be present or absent but isn't => thorw it out
+            if scores_1[pidx] == 1.0 and x[pidx] == 0.0 or scores_1[pidx] == 0.0 and x[pidx] == 1.0:
+                diff = np.inf
+        diffs[fw_index] = diff
+    top_fw = [x for x in sorted(diffs.items(), key=lambda x: x[1], reverse=False)[:10]]
+    #first_word = random.choice(top_fw)[0]
+    return top_fw
 
 
 def process_name(text):
@@ -245,7 +290,8 @@ def get_texts(file_path):
             processed_value = funct(val)
             processed_fields[header].append(processed_value)
 
-    tok_refenreces = [preprocess_nlg_text(x, name, near, name_tok, near_tok) for x, name, near in zip(references, processed_fields['name'], processed_fields['near'])]
+    tok_refenreces = [preprocess_nlg_text(x, name, near, food, name_tok, near_tok, food_tok, word_based=False) for x, name, near, food in zip(references, processed_fields['name'], processed_fields['near'],  processed_fields['food'])]
+
     return tok_refenreces
 
 
@@ -253,31 +299,7 @@ if __name__ == '__main__':
     config_data = json.load(open('configurations/config_vae_nlg.json'))
     tweets_path = config_data['tweets_path']
 
-    train_texts = get_texts(join(tweets_path, 'trainset.csv'))
-    dev_texts = get_texts(join(tweets_path, 'devset.csv'))
+    vocab_path = config_data['vocab_path']
+    vocab = cPickle.load(open(join(vocab_path, 'vocabulary.pkl'), 'rb'))
 
-    otextfile = open(join(tweets_path, 'full_texts.txt'), 'wt', encoding='utf-8')
-
-    full_tokens = Counter()
-    sentence_lengths = []
-    for tokens in train_texts + dev_texts:
-        full_tokens.update(tokens)
-        sentence_lengths.append(len(tokens))
-        otextfile.write(' '.join(tokens) + '\n')
-
-    print(len(full_tokens))
-    print(full_tokens.most_common(100))
-    sentence_lengths = np.array(sentence_lengths)
-    print(np.mean(sentence_lengths))
-    print(np.std(sentence_lengths))
-
-    vocabulary = {}
-    for i, (token, freq) in enumerate(full_tokens.items()):
-        vocabulary[token] = (i, freq)
-
-    cPickle.dump(vocabulary, open(join(tweets_path, 'vocab_word.pkl'), 'wb'))
-
-    vocab = {x: i for x, i in vocabulary.items()}
-
-    print('Done')
-
+    inputs, _, _, _ = load_text_gen_data(join(tweets_path, 'devset_reduced.csv'), config_data, vocab, random_first_word=True)
