@@ -151,11 +151,14 @@ def vae_model(config_data, vocab, step):
     max_idx = max(vocab.values())
     dummy_word_idx = max_idx + 1
     dropout_word_idx = max_idx + 1
-    top_paths = 10
     nfilter = config_data['nb_filter']
+    filter_length = config_data['filter_length']
     intermediate_dim = config_data['intermediate_dim']
 
-    l2_regularizer = None
+    anneal_start = config_data['anneal_start']
+    anneal_duration = config_data['anneal_duration']
+    alpha = config_data['alpha']
+
     # == == == == == =
     # Define Encoder
     # == == == == == =
@@ -204,7 +207,6 @@ def vae_model(config_data, vocab, step):
     decoder = sc_lstm_decoder(output_idx, output_one_hot_embeddings, dialogue_act, nclasses, sample_out_size, lstm_size, inputs, step)
 
     dis_input = Input(shape=(sample_out_size, nclasses))
-    discriminator = get_descriminator_multitask(dis_input, inputs_list, nfilter, intermediate_dim)
 
     def vae_cross_ent_loss(args):
         x_truth, x_decoded_final = args
@@ -213,27 +215,9 @@ def vae_model(config_data, vocab, step):
         cross_ent = K.categorical_crossentropy(x_decoded_flat, x_truth_flatten)
         cross_ent = K.reshape(cross_ent, shape=(-1, K.shape(x_truth)[1]))
         sum_over_sentences = K.sum(cross_ent, axis=1)
-        return sum_over_sentences
+        reconstruction_weight = K.clip((- step + anneal_start + anneal_duration)/anneal_duration, min_value=alpha, max_value=1.0)
 
-    def da_loss_fun(args):
-        da = args[0]
-        sq_da_t = K.square(da)
-        sum_sq_da_T = K.sum(sq_da_t, axis=1)
-        return sum_sq_da_T
-
-    def da_history_loss_fun(args):
-        da_hp1, da_h = args
-        zeta = 10e-4
-        n = 100
-        #shape: batch_size, sample_size
-        sum_sq_difference = K.sum(K.square(da_hp1 - da_h), axis=2)
-
-        n1 = zeta**sum_sq_difference[:, :-1]
-        n2 = n*n1
-        return K.sum(n2, axis=1)
-
-    def identity_loss(y_true, y_pred):
-        return y_pred
+        return sum_over_sentences*reconstruction_weight
 
     def argmax_fun(softmax_output):
         return K.argmax(softmax_output, axis=2)
@@ -247,13 +231,10 @@ def vae_model(config_data, vocab, step):
     def remove_first_column(x):
         return x[:, 1:, :]
 
-    #padding = ZeroPadding1D(padding=(0, 1))(da_h) #shape:: bs, sample size, da_dim
-    #da_hp1 = Lambda(remove_first_column, output_shape=(sample_out_size, nclasses))(padding)
-
     discriminators = []
     discr_losses = []
     for target, nlabel, name in inputs_list:
-        discriminator = get_discriminator(dis_input, nlabel, name, nfilter, intermediate_dim, kernel_size=5)
+        discriminator = get_discriminator(dis_input, nlabel, name, nfilter, intermediate_dim, kernel_size=filter_length)
         dloss = discriminator(x_p)
         discr_loss = Lambda(cross_ent_loss, output_shape=(1,), name='{}'.format(name))([dloss, target])
         discr_losses.append(discr_loss)
@@ -262,9 +243,6 @@ def vae_model(config_data, vocab, step):
     argmax = Lambda(argmax_fun, output_shape=(sample_out_size,))(x_p)
 
     main_loss = Lambda(vae_cross_ent_loss, output_shape=(1,), name='main')([output_one_hot_embeddings, x_p])
-    #da_loss = Lambda(da_loss_fun, output_shape=(1,), name='dialogue_act')([da_T])
-    #da_history_loss = Lambda(da_history_loss_fun, output_shape=(1,), name='dialogue_history')([da_hp1, da_h])
-
     train_model = Model(inputs=inputs + [output_idx], outputs=[main_loss] + discr_losses)
     test_model = Model(inputs=inputs + [output_idx], outputs=argmax)
 
