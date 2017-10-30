@@ -177,7 +177,7 @@ def get_fist_words_for_input(dp, overlap_map_for_fw):
             if scores_1[pidx] == 1.0 and x[pidx] == 0.0 or scores_1[pidx] == 0.0 and x[pidx] == 1.0:
                 diff = np.inf
         diffs[fw_index] = diff
-    top_fw = [x for x in sorted(diffs.items(), key=lambda x: x[1], reverse=False)[:10]]
+    top_fw = [x for x in sorted(diffs.items(), key=lambda x: x[1], reverse=False)]
     #first_word = random.choice(top_fw)[0]
     return top_fw
 
