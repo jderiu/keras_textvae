@@ -13,11 +13,33 @@ import keras.backend as K
 from data_loaders.data_loader_nlg import load_text_gen_data, get_fist_words_for_input
 from sc_lstm_architecutre.sclstm_gan_architecture import vae_model, get_discriminator_models
 from sklearn.metrics import accuracy_score
-
+import os
 
 consonants = ['B', 'C', 'D', 'F', 'G', 'H', 'J', 'K', 'L', 'M', 'N', 'P', 'Q', 'R', 'S', 'T', 'V', 'W', 'X', 'Z']
 
-def produce_output(test_model, discriminator_models, inputs, input_lex, inverse_vocab, overlap_map_for_fw):
+
+def run_discriminators(sentences, correct_test_inputs, discriminator_models):
+    scores = []
+    avg_scores = []
+    max_scores = []
+    for i, discriminator in enumerate(discriminator_models):
+        discriminator.compile(optimizer='adadelta', loss='categorical_crossentropy')
+        logging.info('Computing Score of {} Discriminator'.format(discriminator.name))
+        y = np.argmax(correct_test_inputs[i], axis=1)
+        r = np.arange(start=0, stop=y.shape[0])
+        y_pred = discriminator.predict(x=sentences, batch_size=1024, verbose=1)
+        y_pred_argmax = np.argmax(y_pred, axis=1)
+        correct_lbl = y == y_pred_argmax
+        print(accuracy_score(y, y_pred_argmax))
+        print(correct_lbl.shape)
+        scores.append(correct_lbl.astype(int)*y_pred[r, y])
+        avg_scores.append(np.mean(correct_lbl.astype(int)*y_pred[r, y]))
+        #max_scores.append(np.max(correct_lbl.astype(int)*y_pred[r, y]))
+
+    return scores, avg_scores, max_scores
+
+
+def produce_output(test_model, discriminator_models, inputs, input_lex, inverse_vocab, overlap_map_for_fw, oput_path, number, log_file):
     def upperfirst(x):
         return x[0].upper() + x[1:]
 
@@ -52,26 +74,14 @@ def produce_output(test_model, discriminator_models, inputs, input_lex, inverse_
 
     logging.info('Predicting sentences using SCLSTM')
     sentences = test_model.predict(correct_test_inputs, batch_size=1024, verbose=1)
-    scores = []
-    for i, discriminator in enumerate(discriminator_models):
-        discriminator.compile(optimizer='adadelta', loss='categorical_crossentropy')
-        logging.info('Computing Score of {} Discriminator'.format(discriminator.name))
-        y = np.argmax(correct_test_inputs[i], axis=1)
-        r = np.arange(start=0, stop=y.shape[0])
-        y_pred = discriminator.predict(x=sentences, batch_size=1024, verbose=1)
-        y_pred_argmax = np.argmax(y_pred, axis=1)
-        correct_lbl = y == y_pred_argmax
-        print(accuracy_score(y, y_pred_argmax))
-        print(correct_lbl.shape)
-        scores.append(correct_lbl.astype(int)*y_pred[r, y])
-        #scores.append(y_pred[r, y])
+    scores, avg_scores, max_scores = run_discriminators(sentences, correct_test_inputs,discriminator_models)
 
     sen_dict = defaultdict(lambda: [])
     print(len(test_input_indices))
     print(len(sentences))
     print(len([sum(x) for x in zip(*scores)]))
     ofile = open('output.txt', 'wt', encoding='utf-8')
-    gen_ofile = open('generated_output_devset_689.txt', 'wt', encoding='utf-8')
+    gen_ofile = open(join(oput_path, 'generated_output_devset_{}.txt'.format(number)), 'wt', encoding='utf-8')
     for test_input_idx, sentence, score in zip(test_input_indices, sentences, [sum(x) for x in zip(*scores)]):
 
         list_txt_idx = [int(x) for x in sentence.tolist()]
@@ -85,6 +95,12 @@ def produce_output(test_model, discriminator_models, inputs, input_lex, inverse_
         if near_tok in oline or name_tok in oline or food_tok in oline:
             continue
         sen_dict[test_input_idx].append((oline, score))
+
+    log_file.write('{}:\t'.format(number))
+    for avg in zip(avg_scores):
+        log_file.write('{}\t'.format(avg[0]))
+    log_file.write('\n')
+    log_file.flush()
 
     for i, sentences in sen_dict.items():
         sorted_sentences = sorted(sentences, key=lambda x: x[1], reverse=True)
@@ -132,13 +148,21 @@ step = K.variable(1., name='step_varialbe')
 train_model, test_model, _ = vae_model(config_data, vocab, step)
 discriminator_models = get_discriminator_models(config_data, vocab)
 
-
-logging.info('Loading the SCLSTM Model')
-train_model.load_weights(join(model_path, 'weights.689.hdf5'))
-
 for i, discriminator in enumerate(discriminator_models):
     logging.info('Loading the {} Discriminator'.format(discriminator.name))
     discriminator.load_weights(join(model_path, 'discr_weights_{}.hdf5'.format(discriminator.name)))
 
+oput_path = 'logging/sclstm_gan_128filter'
+log_file = open(join(oput_path, 'log_scores.txt'), 'wt', encoding='utf-8')
+for weights_path in os.listdir(model_path):
+    number = weights_path.split('.')[-2]
+    if not weights_path.endswith('.hdf5'):
+        continue
+    try:
+        number = int(number)
+    except:
+        continue
+    logging.info('Loading the SCLSTM Model {}'.format(number))
+    train_model.load_weights(join(model_path, weights_path))
 
-produce_output(test_model, discriminator_models, valid_dev_input3, valid_dev_lex3, inverse_vocab, overlap_map_for_fw)
+    produce_output(test_model, discriminator_models, valid_dev_input3, valid_dev_lex3, inverse_vocab, overlap_map_for_fw, oput_path, number, log_file)
