@@ -92,6 +92,7 @@ ENV/
 models/
 embeddings/
 results/
+logging/
 *.gz
 *.h5
 *.tsv
