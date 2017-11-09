@@ -62,13 +62,13 @@ def main(args):
         noutputs = 10
 
         logging.info('Load Training Data')
-        train_input, train_output, train_weights, train_lex = load_text_gen_data(join(tweets_path, 'trainset.csv'), config_data, vocab, noutputs, word_based=False)
+        train_input, train_output, train_weights, train_lex, _ = load_text_gen_data(join(tweets_path, 'trainset.csv'), config_data, vocab, noutputs, word_based=False)
         logging.info('Load Validation Data')
-        valid_input, valid_output, _, valid_lex = load_text_gen_data(join(tweets_path, 'devset.csv'), config_data,vocab, noutputs, word_based=False)
+        valid_input, valid_output, _, valid_lex, mr_list = load_text_gen_data(join(tweets_path, 'devset.csv'), config_data,vocab, noutputs, word_based=False)
         logging.info('Load Output Validation Data')
-        valid_dev_input, valid_dev_output, _, valid_dev_lex = load_text_gen_data(join(tweets_path, 'devset_reduced.csv'), config_data, vocab, noutputs, random_output=True, word_based=False)
-        valid_dev_input2, valid_dev_output2, _, valid_dev_lex2 = load_text_gen_data(join(tweets_path, 'devset_located.csv'), config_data, vocab, noutputs, random_output=True, word_based=False,random_first_word=True)
-        valid_dev_input3, valid_dev_output3, _, valid_dev_lex3 = load_text_gen_data(join(tweets_path, 'test_e2e.csv'),config_data, vocab, noutputs,random_output=True,word_based=False,random_first_word=True)
+        valid_dev_input, valid_dev_output, _, valid_dev_lex, _ = load_text_gen_data(join(tweets_path, 'devset_reduced.csv'), config_data, vocab, noutputs, random_output=True, word_based=False)
+        valid_dev_input2, valid_dev_output2, _, valid_dev_lex2, _ = load_text_gen_data(join(tweets_path, 'devset_located.csv'), config_data, vocab, noutputs, random_output=True, word_based=False,random_first_word=True)
+        valid_dev_input3, valid_dev_output3, _, valid_dev_lex3, _ = load_text_gen_data(join(tweets_path, 'test_e2e.csv'),config_data, vocab, noutputs,random_output=True,word_based=False,random_first_word=True)
 
         x_train = np.asarray([np.concatenate(x) for x in zip(*train_input[:8])])
         y_train = train_input[8]
@@ -76,8 +76,8 @@ def main(args):
         x_dev = np.asarray([np.concatenate(x) for x in zip(*valid_input[:8])])
         y_dev = valid_input[8]
 
-        x_test = np.asarray([np.concatenate(x) for x in zip(*valid_input[:8])])
-        y_test = valid_input[8]
+        x_test = np.asarray([np.concatenate(x) for x in zip(*valid_dev_input3[:8])])
+        y_test = valid_dev_input3[8]
 
         print(x_train.shape)
         print(y_train.shape)
@@ -85,7 +85,7 @@ def main(args):
         #y_count = np.sum(y_train, axis=0)
         #y_cw = y_train.shape[0]/(y_train.shape[1]*y_count)
         #class_weights = {i: cw for i, cw in enumerate(y_cw)}
-        model = SGDClassifier(loss='squared_hinge', penalty='l1',verbose=1, class_weight='balanced')
+        model = SGDClassifier(loss='hinge', penalty='l2', verbose=1, class_weight='balanced')
         model.fit(x_train, np.argmax(y_train, axis=1))
 
         y_pred = model.predict(x_dev)
@@ -93,10 +93,12 @@ def main(args):
         print(accuracy_score(np.argmax(y_dev, axis=1), y_pred))
         print(f1_score(np.argmax(y_dev, axis=1),y_pred, average=None))
 
-        y_pred = model.predict(x_test)
-        for yp in y_pred:
-            value = inv_fw_vocab.get(yp, 'NONE')
-            print(value)
+        y_pred = model.decision_function(x_test)
+        y_pred = np.argsort(y_pred, axis=1)[::-1]
+        for ft, yps in zip(mr_list, y_pred):
+            y_pr = yps[:10]
+            values = [inv_fw_vocab.get(yp, 'NONE') for yp in y_pr]
+            print(value, ft)
 
 
 if __name__ == '__main__':

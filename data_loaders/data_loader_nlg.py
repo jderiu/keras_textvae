@@ -50,12 +50,12 @@ def load_text_gen_data(fname, config_data, vocabulary, noutputs=3, random_output
     processed_fields = defaultdict(lambda: [])
     outputs_raw = []
     weights_raw = []
-
+    mr_list = []
     for row in reader:
         i1 = row['mr']
         i2 = row.get('ref', '')
         i3 = row.get('weight', 1.0)
-
+        mr_list.append(i1)
         weights_raw.append(float(i3))
         outputs_raw.append(i2)
         keywords = i1.split(',')
@@ -118,7 +118,7 @@ def load_text_gen_data(fname, config_data, vocabulary, noutputs=3, random_output
         food_tok: processed_fields['food'],
     }
 
-    return inputs, outputs, [weights]*noutputs, lex_dict
+    return inputs, outputs, [weights]*noutputs, lex_dict, mr_list
 
 
 def get_first_words(outputs_delex, first_word_dict, random_first_word=False):
