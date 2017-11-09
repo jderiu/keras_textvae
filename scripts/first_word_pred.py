@@ -96,9 +96,9 @@ def main(args):
         y_pred = model.decision_function(x_test)
         y_pred = np.argsort(y_pred, axis=1)[::-1]
         for ft, yps in zip(mr_list, y_pred):
-            y_pr = yps[:10]
+            y_pr = yps[-10:]
             values = [inv_fw_vocab.get(yp, 'NONE') for yp in y_pr]
-            print(value, ft)
+            print(values, ft)
 
 
 if __name__ == '__main__':
