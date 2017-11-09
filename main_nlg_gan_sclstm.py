@@ -58,7 +58,6 @@ def get_disc_batch(X_real_batch, generator_model, batch_counter, batch_size, noi
     return X_disc_real, X_disc_gen
 
 def main(args):
-
     try:
         opts, args = getopt.getopt(args, "c:s", ["config="])
     except getopt.GetoptError:
@@ -141,14 +140,14 @@ def main(args):
                 # == == == == == == == == =
                 # Pretrain Discriminators
                 # == == == == == == == == =
-                early_stopping = EarlyStopping(monitor='val_loss', patience=20, mode='min', verbose=1)
+                early_stopping = EarlyStopping(monitor='val_loss', patience=20, mode='min', verbose=1, min_delta=1e-6)
                 model_checkpoint = ModelCheckpoint(join(model_path, 'discr_weights_{}.hdf5'.format(discriminator.name)), save_weights_only=True, save_best_only=True, monitor='val_loss', mode='min', verbose=1)
                 logging.info('Pretrain the {} Discriminator'.format(discriminator.name))
                 history = discriminator.fit(
                     x=disX_train,
                     y=disy_train[i],
                     validation_data=(valid_input[-1], valid_input[i]),
-                    epochs=1,
+                    epochs=1000,
                     batch_size=batch_size,
                     callbacks=[early_stopping, model_checkpoint]
                 )

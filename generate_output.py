@@ -53,9 +53,9 @@ def produce_output(test_model, discriminator_models, inputs, input_lex, inverse_
     for idx, input in enumerate(zip(*inputs + [input_lex[name_tok], input_lex[near_tok], input_lex[food_tok]])):
         first_word = input[8]
         fw_incides = get_fist_words_for_input(input[:8], overlap_map_for_fw)
-        for i, fw_score in fw_incides:
+        for i, fw_score in fw_incides[:1]:
             new_first_word = np.zeros_like(first_word)
-            new_first_word[i] = 1.0
+            new_first_word[0] = 1.0
 
             ninput = list(input[:10])
             ninput[8] = new_first_word
@@ -96,7 +96,7 @@ def produce_output(test_model, discriminator_models, inputs, input_lex, inverse_
             continue
         sen_dict[test_input_idx].append((oline, score))
 
-    log_file.write('{}:\t'.format(number))
+    log_file.write('{}\t'.format(number))
     for avg in zip(avg_scores):
         log_file.write('{}\t'.format(avg[0]))
     log_file.write('\n')
@@ -125,7 +125,7 @@ def produce_output(test_model, discriminator_models, inputs, input_lex, inverse_
 
 logging.basicConfig(format='%(asctime)s : %(levelname)s : %(message)s', level=logging.INFO)
 
-model_path = 'models/sclstm_gan_128filter'
+model_path = 'models/sclstm_gan_f1268_new_f3_anneal'
 
 config_data = json.load(open('configurations/config_vae_scvae.json', 'r'))
 
@@ -152,15 +152,22 @@ for i, discriminator in enumerate(discriminator_models):
     logging.info('Loading the {} Discriminator'.format(discriminator.name))
     discriminator.load_weights(join(model_path, 'discr_weights_{}.hdf5'.format(discriminator.name)))
 
-oput_path = 'logging/sclstm_gan_128filter'
-log_file = open(join(oput_path, 'log_scores.txt'), 'wt', encoding='utf-8')
-for weights_path in os.listdir(model_path):
+oput_path = 'logging/sclstm_gan_128filter_anneal_boring'
+log_file = open(join(oput_path, 'log_scores.txt'), 'rt', encoding='utf-8')
+logs = log_file.readlines()
+logged_weights = [int(x.split('\t')[0][:-1]) for x in logs]
+log_file.close()
+log_file = open(join(oput_path, 'log_scores.txt'), 'a', encoding='utf-8')
+for weights_path in os.listdir(model_path)[:10]:
     number = weights_path.split('.')[-2]
     if not weights_path.endswith('.hdf5'):
         continue
     try:
         number = int(number)
     except:
+        continue
+    if number in logged_weights:
+        logging.info('Skipping the SCLSTM Model {}'.format(number))
         continue
     logging.info('Loading the SCLSTM Model {}'.format(number))
     train_model.load_weights(join(model_path, weights_path))

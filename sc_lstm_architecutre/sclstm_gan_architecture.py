@@ -22,6 +22,22 @@ def conv_block(input, nfilter, kernel_size=3):
     return max_pool
 
 
+def conv_block_layered(input, nfilter,nlayers=2, kernel_size=3):
+    conv = Conv1D(filters=nfilter, kernel_size=kernel_size, strides=2, padding='same')(input)
+    bn = BatchNormalization(scale=False)(conv)
+    tmp_relu = PReLU()(bn)
+
+    for layer in range(1, nlayers):
+        # oshape = (batch_size, sample_size/2**layer+1, nkernels*2**nlayer)
+        conv = Conv1D(filters=nfilter, kernel_size=kernel_size, strides=2, padding='same')(tmp_relu)
+        bn = BatchNormalization(scale=False)(conv)
+        tmp_relu = PReLU()(bn)
+        # oshape = (batch_size, sample_size/4*256)
+    max_pool = GlobalMaxPooling1D()(tmp_relu)
+
+    return max_pool
+
+
 def get_descriminator_multitask(g_in, targets, nfilter, intermediate_dim, kernel_size=3):
     in_conv0 = conv_block(g_in, nfilter, kernel_size)
 
@@ -38,8 +54,8 @@ def get_descriminator_multitask(g_in, targets, nfilter, intermediate_dim, kernel
     return discriminator
 
 
-def get_discriminator(g_in, nlabel, name, nfilter, hidden_units, kernel_size):
-    in_conv0 = conv_block(g_in, nfilter, kernel_size)
+def get_discriminator(g_in, nlabel, name, nfilter, hidden_units, kernel_size, nlayers):
+    in_conv0 = conv_block_layered(g_in, nfilter, nlayers, kernel_size)
 
     hidden_intermediate_discr = Dense(hidden_units, activation='relu', name='discr_activation')(in_conv0)
 
@@ -152,6 +168,7 @@ def vae_model(config_data, vocab, step):
     dummy_word_idx = max_idx + 1
     dropout_word_idx = max_idx + 1
     nfilter = config_data['nb_filter']
+    nlayers = config_data['nlayers']
     filter_length = config_data['filter_length']
     intermediate_dim = config_data['intermediate_dim']
 
@@ -234,7 +251,7 @@ def vae_model(config_data, vocab, step):
     discriminators = []
     discr_losses = []
     for target, nlabel, name in inputs_list:
-        discriminator = get_discriminator(dis_input, nlabel, name, nfilter, intermediate_dim, kernel_size=filter_length)
+        discriminator = get_discriminator(dis_input, nlabel, name, nfilter, intermediate_dim, kernel_size=filter_length, nlayers=nlayers)
         dloss = discriminator(x_p)
         discr_loss = Lambda(cross_ent_loss, output_shape=(1,), name='{}'.format(name))([dloss, target])
         discr_losses.append(discr_loss)
