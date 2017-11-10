@@ -74,6 +74,8 @@ def get_discriminator_models(config_data, vocab):
     dropout_word_idx = max_idx + 1
     nfilter = config_data['nb_filter']
     intermediate_dim = config_data['intermediate_dim']
+    nlayers = config_data['nlayers']
+    filter_length = config_data['filter_length']
 
     name_idx = Input(batch_shape=(None, 2), dtype='float32', name='name_idx')
     eat_type_idx = Input(batch_shape=(None, 4), dtype='float32', name='eat_type_idx')
@@ -114,7 +116,7 @@ def get_discriminator_models(config_data, vocab):
 
     discriminators = []
     for target, nlabel, name in inputs_list:
-        discriminator = get_discriminator(dis_input, nlabel, name, nfilter, intermediate_dim, 5)
+        discriminator = get_discriminator(dis_input, nlabel, name, nfilter, intermediate_dim, 5, nlayers)
         discriminators.append((discriminator, name))
 
     discriminator_models = []
@@ -232,9 +234,9 @@ def vae_model(config_data, vocab, step):
         cross_ent = K.categorical_crossentropy(x_decoded_flat, x_truth_flatten)
         cross_ent = K.reshape(cross_ent, shape=(-1, K.shape(x_truth)[1]))
         sum_over_sentences = K.sum(cross_ent, axis=1)
-        reconstruction_weight = K.clip((- step + anneal_start + anneal_duration)/anneal_duration, min_value=alpha, max_value=1.0)
+        #reconstruction_weight = K.clip((- step + anneal_start + anneal_duration)/anneal_duration, min_value=alpha, max_value=1.0)
 
-        return sum_over_sentences*reconstruction_weight
+        return sum_over_sentences
 
     def argmax_fun(softmax_output):
         return K.argmax(softmax_output, axis=2)
