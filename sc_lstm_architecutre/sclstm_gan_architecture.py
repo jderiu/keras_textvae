@@ -6,7 +6,7 @@ from custom_layers.sem_recurrent import SC_LSTM
 from custom_layers.word_dropout import WordDropout
 from custom_layers.ctc_decoding_layer import CTC_Decoding_layer
 from keras.models import Model
-
+from data_loaders.lex_features_utils import get_lengths
 
 def conv_block(input, nfilter, kernel_size=3):
     conv1 = Conv1D(filters=nfilter, kernel_size=kernel_size, strides=2, padding='same')(input)
@@ -29,7 +29,7 @@ def conv_block_layered(input, nfilter,nlayers=2, kernel_size=3):
 
     for layer in range(1, nlayers):
         # oshape = (batch_size, sample_size/2**layer+1, nkernels*2**nlayer)
-        conv = Conv1D(filters=nfilter, kernel_size=kernel_size, strides=2, padding='same')(tmp_relu)
+        conv = Conv1D(filters=2*nfilter, kernel_size=kernel_size, strides=2, padding='same')(tmp_relu)
         bn = BatchNormalization(scale=False)(conv)
         tmp_relu = PReLU()(bn)
         # oshape = (batch_size, sample_size/4*256)
@@ -65,67 +65,6 @@ def get_discriminator(g_in, nlabel, name, nfilter, hidden_units, kernel_size, nl
 
     discriminator = Model(inputs=g_in, outputs=softmax, name='{}_disc'.format(name))
     return discriminator
-
-
-def get_discriminator_models(config_data, vocab):
-    sample_out_size = config_data['max_output_length']
-    nclasses = len(vocab) + 3
-    max_idx = max(vocab.values())
-    dropout_word_idx = max_idx + 1
-    nfilter = config_data['nb_filter']
-    intermediate_dim = config_data['intermediate_dim']
-    nlayers = config_data['nlayers']
-    filter_length = config_data['filter_length']
-
-    name_idx = Input(batch_shape=(None, 2), dtype='float32', name='name_idx')
-    eat_type_idx = Input(batch_shape=(None, 4), dtype='float32', name='eat_type_idx')
-    price_range_idx = Input(batch_shape=(None, 7), dtype='float32', name='price_range_idx')
-    customer_feedback_idx = Input(batch_shape=(None, 7), dtype='float32', name='customer_feedback_idx')
-    near_idx = Input(batch_shape=(None, 2), dtype='float32', name='near_idx')
-    food_idx = Input(batch_shape=(None, 2), dtype='float32', name='food_idx')
-    area_idx = Input(batch_shape=(None, 3), dtype='float32', name='area_idx')
-    family_idx = Input(batch_shape=(None, 3), dtype='float32', name='family_idx')
-    fw_idx = Input(batch_shape=(None, 40), dtype='float32', name='fw_idx')
-    output_idx = Input(batch_shape=(None, sample_out_size), dtype='int32', name='character_output')
-    dis_input = Input(shape=(sample_out_size, nclasses))
-
-    inputs_list = [
-        (name_idx, 2, 'name'),
-        (eat_type_idx, 4, 'eat_type'),
-        (price_range_idx, 7, 'price_range'),
-        (customer_feedback_idx, 7, 'feedback'),
-        (near_idx, 2, 'near'),
-        (food_idx, 2, 'food'),
-        (area_idx, 3, 'area'),
-        (family_idx, 3, 'family'),
-        (fw_idx, 40, 'fw'),
-    ]
-
-    one_hot_weights = np.identity(nclasses)
-
-    one_hot_out_embeddings = Embedding(
-        input_length=sample_out_size,
-        input_dim=nclasses,
-        output_dim=nclasses,
-        weights=[one_hot_weights],
-        trainable=False,
-        name='one_hot_out_embeddings'
-    )
-
-    text_one_hot = one_hot_out_embeddings(output_idx)
-
-    discriminators = []
-    for target, nlabel, name in inputs_list:
-        discriminator = get_discriminator(dis_input, nlabel, name, nfilter, intermediate_dim, 5, nlayers)
-        discriminators.append((discriminator, name))
-
-    discriminator_models = []
-    for discriminator, name in discriminators:
-        discr_train_losses = discriminator(text_one_hot)
-        discriminator_model = Model(inputs=output_idx, outputs=discr_train_losses, name='{}'.format(name))
-        discriminator_models.append(discriminator_model)
-
-    return discriminator_models
 
 
 def sc_lstm_decoder(text_idx, text_one_hot, dialogue_act, nclasses, sample_out_size, lstm_size, inputs, step):
@@ -173,10 +112,13 @@ def vae_model(config_data, vocab, step):
     nlayers = config_data['nlayers']
     filter_length = config_data['filter_length']
     intermediate_dim = config_data['intermediate_dim']
+    max_nsentences = config_data['max_nsentences']
 
     anneal_start = config_data['anneal_start']
     anneal_duration = config_data['anneal_duration']
     alpha = config_data['alpha']
+
+    feature_list = config_data['features']
 
     # == == == == == =
     # Define Encoder
@@ -189,7 +131,7 @@ def vae_model(config_data, vocab, step):
     food_idx = Input(batch_shape=(None, 2), dtype='float32', name='food_idx')
     area_idx = Input(batch_shape=(None, 3), dtype='float32', name='area_idx')
     family_idx = Input(batch_shape=(None, 3), dtype='float32', name='family_idx')
-    fw_idx = Input(batch_shape=(None, 40), dtype='float32', name='fw_idx')
+
     output_idx = Input(batch_shape=(None, sample_out_size), dtype='int32', name='character_output')
 
     inputs_list = [
@@ -201,8 +143,48 @@ def vae_model(config_data, vocab, step):
         (food_idx, 2, 'food'),
         (area_idx, 3, 'area'),
         (family_idx, 3, 'family'),
-        (fw_idx, 40, 'fw'),
     ]
+
+    dimensions = get_lengths(config_data)
+
+    if 'nsent' in feature_list:
+        x = Input(batch_shape=(None, dimensions['nsent']), dtype='float32', name='nsent_idx')
+        inputs_list.append((x, dimensions['nsent'], 'nsent'))
+
+    if 'fout_word_vectors':
+        x = Input(batch_shape=(None, dimensions['fout_word_vectors']), dtype='float32', name='fout_word_vectors_idx')
+        inputs_list.append((x, dimensions['fout_word_vectors'], 'fout_word_vectors'))
+
+    if 'fout_phrase_vectors':
+        x = Input(batch_shape=(None, dimensions['fout_phrase_vectors']), dtype='float32', name='fout_phrase_vectors_idx')
+        inputs_list.append((x, dimensions['fout_phrase_vectors'], 'fout_phrase_vectors'))
+
+    if 'fout_pos_vectors':
+        x = Input(batch_shape=(None, dimensions['fout_pos_vectors']), dtype='float32', name='fout_pos_vectors_idx')
+        inputs_list.append((x, dimensions['fout_pos_vectors'], 'fout_pos_vectors'))
+
+    if 'fword_vectors':
+        for i in range(1, max_nsentences):
+            fw_idx = Input(batch_shape=(None, dimensions['fword_vectors']), dtype='float32', name='fword_vectors_idx_{}'.format(i))
+            inputs_list.append((fw_idx, dimensions['fword_vectors'], 'fword_vectors_{}'.format(i)))
+
+    if 'fphrase_vectors':
+        for i in range(1, max_nsentences):
+            fw_idx = Input(batch_shape=(None, dimensions['fphrase_vectors']), dtype='float32', name='fphrase_vectors_idx_{}'.format(i))
+            inputs_list.append((fw_idx, dimensions['fphrase_vectors'], 'fphrase_vectors_{}'.format(i)))
+
+    if 'fpos_vectors':
+        for i in range(1, max_nsentences):
+            fw_idx = Input(batch_shape=(None, dimensions['fpos_vectors']), dtype='float32', name='fpos_vectors_idx_{}'.format(i))
+            inputs_list.append((fw_idx, dimensions['fpos_vectors'], 'fpos_vectors_{}'.format(i)))
+
+    if 'pos_tag_feature':
+        x = Input(batch_shape=(None, dimensions['pos_tag_feature']), dtype='float32', name='pos_tag_feature_idx')
+        inputs_list.append((x, dimensions['pos_tag_feature'], 'pos_tag_feature'))
+
+    if 'phrase_tag_feature':
+        x = Input(batch_shape=(None, dimensions['phrase_tag_feature']), dtype='float32', name='phrase_tag_feature_idx')
+        inputs_list.append((x, dimensions['phrase_tag_feature'], 'phrase_tag_feature'))
 
     inputs = [x[0] for x in inputs_list]
     word_dropout = WordDropout(rate=1.0, dummy_word=dropout_word_idx, anneal_step=step)(output_idx)
@@ -262,7 +244,7 @@ def vae_model(config_data, vocab, step):
     argmax = Lambda(argmax_fun, output_shape=(sample_out_size,))(x_p)
 
     main_loss = Lambda(vae_cross_ent_loss, output_shape=(1,), name='main')([output_one_hot_embeddings, x_p])
-    train_model = Model(inputs=inputs + [output_idx], outputs=[main_loss] + discr_losses)
+    train_model = Model(inputs=inputs + [output_idx], outputs=[main_loss] + discr_losses[:8])
     test_model = Model(inputs=inputs + [output_idx], outputs=argmax)
 
     discriminator_models = []

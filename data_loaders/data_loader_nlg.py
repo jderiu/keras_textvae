@@ -118,7 +118,7 @@ def load_text_gen_data(fname, config_data, vocabulary, noutputs=3, random_output
         food_tok: processed_fields['food'],
     }
 
-    return inputs, outputs, [weights]*noutputs, lex_dict, mr_list
+    return inputs, outputs, [weights]*noutputs, lex_dict
 
 
 def get_first_words(outputs_delex, first_word_dict, random_first_word=False):

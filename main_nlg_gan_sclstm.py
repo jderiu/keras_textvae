@@ -17,12 +17,12 @@ import keras.backend as K
 
 
 from keras.callbacks import ModelCheckpoint, BaseLogger, ProgbarLogger, CallbackList, TensorBoard,EarlyStopping
-from data_loaders.data_loader_nlg import load_text_gen_data
+from data_loaders.data_loader_nlg_syntax import load_text_gen_data
 from sc_lstm_architecutre.sclstm_gan_architecture import vae_model
 import time
 from keras.optimizers import Adam, Nadam, Adadelta
 from custom_callbacks import StepCallback, GANOutputCallback, TerminateOnNaN, LexOutputCallbackGAN
-from keras_fit_utils.utils import _make_batches, _batch_shuffle, _slice_arrays
+from data_loaders.lex_features_utils import get_number_outputs
 
 
 def set_trainability(model, trainable=False):
@@ -56,6 +56,17 @@ def get_disc_batch(X_real_batch, generator_model, batch_counter, batch_size, noi
     X_disc_real = X_real_batch[:batch_size]
 
     return X_disc_real, X_disc_gen
+
+
+def last_one(a):
+    di = {}
+    for i, j in zip(*np.where(a > 0)):
+        if i in di:
+            di[i] = np.max([di[i], j])
+        else:
+            di[i] = j
+    return di
+
 
 def main(args):
     try:
@@ -99,16 +110,51 @@ def main(args):
         # Load all the Data
         #== == == == == == =
         delimiter = ''
-        noutputs = 10
+        noutputs = 9 #+ get_number_outputs(config_data)
 
         logging.info('Load Training Data')
-        train_input, train_output, train_weights, train_lex = load_text_gen_data(join(tweets_path, 'trainset.csv'), config_data, vocab,noutputs, word_based=False)
+        train_input, train_output, train_weights, train_lex = load_text_gen_data(
+            join(tweets_path, 'trainset.csv'),
+            join(tweets_path, 'train_lex_features.csv'),
+            join(tweets_path, 'train_lex_features_tree.json'),
+            config_data,
+            vocab,
+            noutputs,
+            word_based=False
+        )
         logging.info('Load Validation Data')
-        valid_input, valid_output, _, valid_lex = load_text_gen_data(join(tweets_path, 'devset.csv'), config_data, vocab,noutputs, word_based=False)
+        valid_input, valid_output, _, valid_lex = load_text_gen_data(
+            join(tweets_path, 'devset.csv'),
+            join(tweets_path, 'devset_lex_features.csv'),
+            join(tweets_path, 'dev_lex_features_tree.json'),
+            config_data,
+            vocab,
+            noutputs,
+            word_based=False
+        )
         logging.info('Load Output Validation Data')
-        valid_dev_input, valid_dev_output, _, valid_dev_lex = load_text_gen_data(join(tweets_path, 'devset_reduced.csv'), config_data, vocab, noutputs, random_output=True, word_based=False)
-        valid_dev_input2, valid_dev_output2, _, valid_dev_lex2 = load_text_gen_data(join(tweets_path, 'devset_located.csv'), config_data, vocab, noutputs, random_output=True, word_based=False,random_first_word=True)
-        valid_dev_input3, valid_dev_output3, _, valid_dev_lex3 = load_text_gen_data(join(tweets_path, 'test_e2e.csv'), config_data, vocab, noutputs, random_output=True, word_based=False,random_first_word=True)
+        valid_dev_input, valid_dev_output, _, valid_dev_lex = load_text_gen_data(
+            join(tweets_path, 'devset_reduced.csv'),
+            join(tweets_path, 'devset_lex_features.csv'),
+            join(tweets_path, 'dev_lex_features_tree.json'),
+            config_data,
+            vocab,
+            noutputs,
+            random_output=True,
+            word_based=False,
+            random_first_word=True,
+        )
+        valid_dev_input3, valid_dev_output3, _, valid_dev_lex3 = load_text_gen_data(
+            join(tweets_path, 'test_e2e.csv'),
+            join(tweets_path, 'devset_lex_features.csv'),
+            join(tweets_path, 'dev_lex_features_tree.json'),
+            config_data,
+            vocab,
+            noutputs,
+            random_output=True,
+            word_based=False,
+            random_first_word=True
+        )
 
         step = K.variable(1., name='step_varialbe')
         steps_per_epoch = ceil(train_output[0].shape[0] / config_data['batch_size'])
@@ -132,23 +178,38 @@ def main(args):
         optimizer = Adadelta(lr=1, epsilon=1e-8, rho=0.95, decay=0.0001, clipnorm=10)
         train_model.compile(optimizer=optimizer, loss=lambda y_true, y_pred: y_pred, )
         disX_train = train_input[-1]  # take input 8 as train input and the rest as targets
-        disy_train = train_input[:9]  # take input 1-7 as targets
+        disy_train = train_input[:-1]  # take input 1-7 as targets
         if config_data.get('pretrain_dirscr', 1) == 1:
             for i, discriminator in enumerate(discriminator_models):
                 discriminator.compile(optimizer=optimizer, loss='categorical_crossentropy', metrics=['accuracy']) #output of the discriminator model are the outputs -> specifiy cross_entropy as loss
+                if discriminator.name == 'nsent':
+                    last_ones_idx = last_one(disy_train[i])
+                    y_train = np.zeros_like(disy_train[i])
+                    for j in range(y_train.shape[0]):
+                        lidx = last_ones_idx[j]
+                        y_train[j][lidx] = 1.0
+
+                    last_ones_idx = last_one(valid_input[i])
+                    y_dev = np.zeros_like(valid_input[i])
+                    for j in range(y_dev.shape[0]):
+                        lidx = last_ones_idx[j]
+                        y_dev[j][lidx] = 1.0
+                else:
+                    y_train = disy_train[i]
+                    y_dev = valid_input[i]
 
                 # == == == == == == == == =
                 # Pretrain Discriminators
                 # == == == == == == == == =
-                early_stopping = EarlyStopping(monitor='val_loss', patience=20, mode='min', verbose=1, min_delta=1e-6)
+                early_stopping = EarlyStopping(monitor='val_loss', patience=25, mode='min', verbose=1, min_delta=1e-6)
                 model_checkpoint = ModelCheckpoint(join(model_path, 'discr_weights_{}.hdf5'.format(discriminator.name)), save_weights_only=True, save_best_only=True, monitor='val_loss', mode='min', verbose=1)
                 logging.info('Pretrain the {} Discriminator'.format(discriminator.name))
                 history = discriminator.fit(
                     x=disX_train,
-                    y=disy_train[i],
-                    validation_data=(valid_input[-1], valid_input[i]),
-                    epochs=1000,
-                    batch_size=batch_size,
+                    y=y_train,
+                    validation_data=(valid_input[-1], y_dev),
+                    epochs=1,
+                    batch_size=1024,
                     callbacks=[early_stopping, model_checkpoint]
                 )
 
@@ -170,9 +231,9 @@ def main(args):
         tensorboard = TensorBoard(log_dir='logging/tensorboard', histogram_freq=0, write_grads=True, write_images=True)
         step_callback = StepCallback(step, steps_per_epoch)
         lex_output = LexOutputCallbackGAN(test_model, valid_dev_input, valid_dev_lex, 1, vocab, delimiter, fname='{}/test_output'.format(log_path))
-        lex_output2 = LexOutputCallbackGAN(test_model, valid_dev_input2, valid_dev_lex2, 1, vocab, delimiter, fname='{}/test_output_random'.format(log_path))
+        #lex_output2 = LexOutputCallbackGAN(test_model, valid_dev_input2, valid_dev_lex2, 1, vocab, delimiter, fname='{}/test_output_random'.format(log_path))
         lex_output3 = LexOutputCallbackGAN(test_model, valid_dev_input3, valid_dev_lex3, 1, vocab, delimiter, fname='{}/final_test_output_random'.format(log_path))
-        callbacks = [step_callback, tensorboard, lex_output, lex_output2, lex_output3, model_checkpoint, terminate_on_nan]
+        callbacks = [step_callback, tensorboard, lex_output, lex_output3, model_checkpoint, terminate_on_nan]
         for i, discriminator in enumerate(discriminator_models):
             set_trainability(discriminator, trainable=False)
 

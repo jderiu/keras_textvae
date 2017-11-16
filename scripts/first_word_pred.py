@@ -91,7 +91,7 @@ def main(args):
         y_pred = model.predict(x_dev)
 
         print(accuracy_score(np.argmax(y_dev, axis=1), y_pred))
-        print(f1_score(np.argmax(y_dev, axis=1),y_pred, average=None))
+        print(f1_score(np.argmax(y_dev, axis=1), y_pred, average=None))
 
         y_pred = model.decision_function(x_test)
         y_pred = np.argsort(y_pred, axis=1)[::-1]
