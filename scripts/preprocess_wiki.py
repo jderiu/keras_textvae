@@ -3,9 +3,12 @@ import os
 import re
 from xml.etree.cElementTree import iterparse
 from tqdm import tqdm
+import spacy
+
+nlp = spacy.load('en_core_web_sm', disable=['ner', 'textcat'])
 
 #wiki_file = bz2file.open('F:/Wikipedia Embeddings/enwiki-20170120-pages-articles-multistream.xml.bz2', 'rb')
-wiki_file = open('F:/Wikipedia Embeddings/dewiki-20170820-pages-articles-multistream.xml', 'rt', encoding='utf-8')
+wiki_file = open('F:/Wikipedia Embeddings/enwiki-20170120-pages-articles-multistream.xml', 'rt', encoding='utf-8')
 
 RE_P0 = re.compile('<!--.*?-->', re.DOTALL | re.UNICODE)  # comments
 RE_P1 = re.compile('<ref([> ].*?)(</ref>|/>)', re.DOTALL | re.UNICODE)  # footnotes
@@ -24,7 +27,7 @@ RE_P13 = re.compile('\n(\||\!)(.*?\|)*([^|]*?)', re.UNICODE)  # table cell forma
 RE_P14 = re.compile('\[\[Category:[^][]*\]\]', re.UNICODE)  # categories
 # Remove File and Image template
 RE_P15 = re.compile('\[\[([fF]ile:|[iI]mage)[^]]*(\]\])', re.UNICODE)
-
+RE_TITLE = re.compile(".*?\((.*?)\)")
 # MediaWiki namespaces (https://www.mediawiki.org/wiki/Manual:Namespace) that
 # ought to be ignored
 IGNORED_NAMESPACES = ['Wikipedia', 'Category', 'File', 'Portal', 'Template',
@@ -154,8 +157,10 @@ else:
     already_processed_articles = 0
 
 
-pr_file = open('F:/Wikipedia Embeddings/simple_processed_articles_de.txt', 'at')
-ofile = open('F:/Wikipedia Embeddings/wiki_articles_{}.de.txt'.format(already_processed_articles), 'wt', encoding='utf-8')
+pr_file = open('F:/Wikipedia Embeddings/simple_processed_articles_en.txt', 'at')
+ofile = open('F:/Wikipedia Embeddings/wiki_articles_{}.en.txt'.format(already_processed_articles), 'wt', encoding='utf-8')
+ofile_sentence = open('F:/Wikipedia Embeddings/wiki_sentences_{}.en.txt'.format(already_processed_articles), 'wt', encoding='utf-8')
+ofile_postag = open('F:/Wikipedia Embeddings/wiki_pos_sentences_{}.en.txt'.format(already_processed_articles), 'wt', encoding='utf-8')
 
 processed_articles = 0
 elemlist = []
@@ -189,9 +194,16 @@ for elem in tqdm(elems):
             text = text.replace('\'\'', '').strip()
 
             pr_file.write('{}\n'.format(processed_articles))
-            pr_file.flush()
             ofile.write(text + '\n')
-            ofile.flush()
+
+            for sentence in sent_tokenize(text):
+                osentence = re.sub(title_regex, '', sentence)
+                ofile_sentence.write(osentence.strip() + '\n')
+
+            if processed_articles % 1000:
+                ofile.flush()
+                pr_file.flush()
+                ofile_sentence.flush()
 
         elem.clear()
         root.clear()

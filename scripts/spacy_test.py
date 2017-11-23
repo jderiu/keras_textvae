@@ -4,6 +4,7 @@ import math
 from tqdm import tqdm
 from collections import defaultdict
 import itertools
+import _pickle as cPickle
 
 nlp = spacy.load('en_core_web_sm', disable=['ner', 'parse', 'tagger', 'textcat'])
 
@@ -56,7 +57,7 @@ for i, (kv_raw, docs) in enumerate(vec_for_kv.items()):
     for d1, d2 in itertools.product(docs, repeat=2):
         score = d1.similarity(d2)
         scores.append(score)
-    avg_for_kv[kv_raw] = sum(scores)/len(scores)
+    avg_for_kv[kv_raw] = sum(scores) / len(scores)
     print(i, kv_raw, avg_for_kv[kv_raw])
 
 n_total = 0
@@ -103,10 +104,26 @@ for key, tf_values in tf_key_values.items():
             if tf_score > 50 and lockword_score > 3:
                 tf_idf_key_val[key][value][token] = (tfidf_log_weighted, lockword_score, tf_score)
 
+dict_tf_idf_key_val = {}
 for key, tf_idf in tf_idf_key_val.items():
+    dict_tf_idf = {}
     print(key)
     for value, tfidf_values in tf_idf.items():
         print(value)
-        for token, score in sorted(tfidf_values.items(), key=lambda x: x[1][0]*x[1][1], reverse=True)[:15]:
+        dict_tf_idf[value] = tfidf_values
+        for token, score in sorted(tfidf_values.items(), key=lambda x: x[1][0] * x[1][1], reverse=True)[:15]:
             print(token, score)
         print()
+
+    dict_tf_idf_key_val[key] = dict_tf_idf
+
+cPickle.dump(dict_tf_idf_key_val, open('en_full/tf_idf_key_val.pkl', 'wb'))
+for key, tf_idf in dict_tf_idf_key_val.items():
+    print(key)
+    for value, tfidf_values in tf_idf.items():
+        print(value)
+        for token, score in sorted(tfidf_values.items(), key=lambda x: x[1][0] * x[1][1], reverse=True)[:15]:
+            print(token, score)
+        print()
+
+
